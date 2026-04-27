@@ -1,0 +1,2 @@
+Prebuilt team-inspect binaries land here, one subdirectory per os-arch pair.
+Produced by scripts/build-team-inspect.sh at the repo root.
