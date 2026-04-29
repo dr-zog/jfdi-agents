@@ -305,11 +305,17 @@ All experimental team tools are gated on `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 2. **Teammate idle between turns is normal, not stall.**
 3. **Messages arrive automatically as conversation turns.** No polling, no inbox-scan loops.
 
-## One invocation path: teammate of the TeamLead
+## Three invocation patterns: lead, teammate, solo
 
-Every agent definition in this plugin — except `team-lead` — is designed to run **only** as a teammate of the TeamLead-led agent team. The specialist frontmatter declares `disallowed-tools: AskUserQuestion` to enforce this: a specialist cannot ask the human directly, only via the TeamLead relay. Per-role `claude --agent jfdi-agents:<specialist>` main-session launches are not supported.
+The plugin supports three distinct agent invocation patterns. The first two are the dominant flow this document covers. The third is a deliberate breakout documented separately.
 
-The only supported main-session launch is `claude --agent jfdi-agents:team-lead`.
+| Pattern | Entry point | `AskUserQuestion` | Reference |
+|---|---|---|---|
+| **Lead** | `claude --agent jfdi-agents:team-lead` (main session) | Yes — direct human channel | `${CLAUDE_PLUGIN_ROOT}/docs/team-lead-playbook.md` |
+| **Teammate** | Spawned by the lead via `Agent` into the running team | No — `disallowed-tools: AskUserQuestion`, relays through the lead | This document, throughout |
+| **Solo** | `claude --agent <name>` (main session, human-paired, outside the team flow) | Yes | `${CLAUDE_PLUGIN_ROOT}/docs/solo-agents.md` |
+
+The TeamLead is the only supported main-session launch within the team flow. Per-role main-session launches of teammate agents (e.g. `claude --agent jfdi-agents:product-owner`) are not supported — teammates only function inside the lead's team. Solo agents launch as their own main session by design but are NOT teammates and NOT part of the team flow; see `solo-agents.md` for when solo mode is licensed, the human-gating protocol that authorises minting one, and how solo work integrates with subsequent team sessions.
 
 ## Timescale never licenses shortcuts
 

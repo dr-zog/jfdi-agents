@@ -230,7 +230,8 @@ jfdi-agents/                             # repo root = marketplace root
 │           ├── terminology.md              # shared vocabulary (all agents cite this)
 │           ├── roster.md                   # agent scopes and handoffs
 │           ├── process.md                  # collaboration, conflict, commit rules + artefact templates
-│           ├── team-lead-playbook.md       # team-management mechanics
+│           ├── team-lead-playbook.md       # team-management mechanics (lead satellite of process.md)
+│           ├── solo-agents.md              # solo-mode reference (solo satellite of process.md)
 │           ├── system-prompt-composition.md # output-style rationale
 │           └── local-install.md            # install via git URL, dev mode, etc.
 ├── evals/                                  # end-to-end evals against the plugin

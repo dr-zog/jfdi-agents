@@ -5,12 +5,18 @@ description: Author or audit a Claude Code agent prompt for the jfdi-agents team
 
 # Write an agent prompt
 
-The jfdi-agents team has two kinds of agents, both authored against this skill:
+This skill authors **teammate** agents — agents designed to run as members of the TeamLead-led agent team, communicating via `SendMessage` and `TaskUpdate`, with `AskUserQuestion` denied because the TeamLead relays human interaction.
+
+The jfdi-agents team has two kinds of teammate agents, both authored against this skill:
 
 1. **Plugin-shipped specialists** — ProductOwner, Architect, Verifier, RepoSteward. Live in `plugins/jfdi-agents/agents/` in this repo. Edited by plugin maintainers. Loaded from the plugin cache by every project that installs the plugin.
 2. **Architect-minted Developers** — `backend-dev`, `frontend-dev`, `data-dev`, `shared-dev`, etc. The specific set depends on the downstream project's architecture. Authored during Stage 2 by the Architect (using this skill!), written to `.claude/agents/` in the downstream project. Project-scoped; loaded from the project on each spawn.
 
 Both kinds follow the same structural pattern. The Developer-minting case has an extra set of fields the Architect fills in per layer — see § "Minting a developer agent" below.
+
+**Sibling skills:**
+- [`write-team-lead`](../write-team-lead/SKILL.md) — for the conductor pattern (the lead that spawns teammates).
+- [`write-solo-agent`](../write-solo-agent/SKILL.md) — for **solo** agents that run as a main session paired one-to-one with a human, outside the team loop. Different invocation pattern, different boundary discipline, `AskUserQuestion` enabled. Use that skill, not this one, when minting an agent for visual polish / security audit / exploratory research.
 
 ## When to run this
 

@@ -223,3 +223,13 @@
 - This roster does not prescribe *how many* sessions of each agent run. A project runs one ProductOwner intake session; one Architect session; multiple Developer sessions (one per layer during Build, multiple in parallel during Refine); multiple Verifier sessions (one per milestone).
 - This roster does not prescribe a *sequence* — that belongs to `${CLAUDE_PLUGIN_ROOT}/docs/process.md`.
 - This roster does not promise *uniqueness* in Refine — multiple developers run in parallel. Each owns a different folder so the parallelism is safe.
+
+## Adjacent: solo agents (outside the team)
+
+The six roles above operate inside the team-of-agents flow. There is also a category of agent that operates **outside** that flow — **solo agents**, launched directly by the human as a main session for 1:1 paired work.
+
+Solo agents are not a team role and do not appear in the at-a-glance table. They are minted using the `write-solo-agent` skill (`${CLAUDE_PLUGIN_ROOT}/skills/write-solo-agent/SKILL.md`) **only at the human's explicit request**. The Architect may *propose* a solo agent (after discussing with the ProductOwner and routing the proposal to the human via the TeamLead) but does not unilaterally mint. Typical solo-agent shapes: visual UI polish, security audit, performance investigation, regulatory research. They are bounded by the team's contracts (the acceptance list, the folder map, the decisions log) but iterate with a human rather than with the TeamLead relay.
+
+Solo agents have `AskUserQuestion` enabled, commit as the human's git identity (not a synthetic agent slug), and either complete their work cleanly or produce a handover artefact for a future team session to integrate. The team's invariants are never broken by a half-state.
+
+See `${CLAUDE_PLUGIN_ROOT}/docs/process.md` § *"Three invocation patterns: lead, teammate, solo"* for the at-a-glance comparison, and `${CLAUDE_PLUGIN_ROOT}/docs/solo-agents.md` for the canonical solo-agent reference (when licensed, gating protocol, integration discipline).

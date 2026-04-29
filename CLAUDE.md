@@ -10,10 +10,11 @@ Before editing anything non-trivial inside the plugin, read or re-read:
 
 1. **[`plugins/jfdi-agents/docs/terminology.md`](plugins/jfdi-agents/docs/terminology.md)** — the shared vocabulary every agent uses. Never invent a parallel term.
 2. **[`plugins/jfdi-agents/docs/roster.md`](plugins/jfdi-agents/docs/roster.md)** — the six roles, what they own, what they must not touch.
-3. **[`plugins/jfdi-agents/docs/process.md`](plugins/jfdi-agents/docs/process.md)** — collaboration rules, conflict resolution, commit cadence, artefact templates.
-4. **[`plugins/jfdi-agents/docs/team-lead-playbook.md`](plugins/jfdi-agents/docs/team-lead-playbook.md)** — team-management mechanics (spawn order, stall detection, status-block format).
-5. **[`plugins/jfdi-agents/docs/system-prompt-composition.md`](plugins/jfdi-agents/docs/system-prompt-composition.md)** — why the plugin ships a custom output style and how agent bodies compose under it.
-6. **[`plugins/jfdi-agents/docs/local-install.md`](plugins/jfdi-agents/docs/local-install.md)** — the install flow (git URL marketplace add, dev mode, the difference between the two).
+3. **[`plugins/jfdi-agents/docs/process.md`](plugins/jfdi-agents/docs/process.md)** — collaboration rules, conflict resolution, commit cadence, artefact templates. Cross-cutting rules every agent needs.
+4. **[`plugins/jfdi-agents/docs/team-lead-playbook.md`](plugins/jfdi-agents/docs/team-lead-playbook.md)** — team-management mechanics (spawn order, stall detection, status-block format). Lead-specific satellite of process.md.
+5. **[`plugins/jfdi-agents/docs/solo-agents.md`](plugins/jfdi-agents/docs/solo-agents.md)** — solo-agent satellite of process.md. When solo mode is licensed, the human-gating protocol, integration discipline, the two-licensed-paths principle.
+6. **[`plugins/jfdi-agents/docs/system-prompt-composition.md`](plugins/jfdi-agents/docs/system-prompt-composition.md)** — why the plugin ships a custom output style and how agent bodies compose under it.
+7. **[`plugins/jfdi-agents/docs/local-install.md`](plugins/jfdi-agents/docs/local-install.md)** — the install flow (git URL marketplace add, dev mode, the difference between the two).
 
 If any edit you are about to make would contradict one of these, stop and surface the conflict rather than quietly drifting.
 
