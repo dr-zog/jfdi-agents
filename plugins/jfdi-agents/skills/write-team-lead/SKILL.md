@@ -72,7 +72,7 @@ The lead creates tasks; **teammates transition their own tasks' status** as a ha
 
 ### `TeamCreate` / `TeamDelete`
 
-- **Zombie teams.** `TeamDelete` returns `success: true` even on a zombie. Recovery is manual `rm -rf ~/.claude/teams/<name>/` followed by `TeamCreate` replay. Aliveness check: `find ~/.claude/teams/<name>/ -mmin -10` distinguishes live from zombie.
+- **Zombie teams.** `TeamDelete` returns `success: true` even on a zombie. Recovery is manual `rm -rf "$STATE_DIR/teams/<name>/"` followed by `TeamCreate` replay, where `$STATE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"`. Aliveness check: `find "$STATE_DIR/teams/<name>/" -mmin -10` distinguishes live from zombie. Hard-coding `~/.claude` silently misses the per-project-isolation case (see `${CLAUDE_PLUGIN_ROOT}/agents/team-lead.md` § "Session recovery — aliveness check" for the verified-name + isolation-warning protocol).
 - **Env flag.** `TeamCreate` / `TeamDelete` / `SendMessage` are hard-gated on `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. The lead should check the env var at session start and refuse to proceed if unset.
 
 ## Addressing discipline — silent failure if wrong
