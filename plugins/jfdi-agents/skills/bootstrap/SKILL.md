@@ -193,7 +193,42 @@ The recommended per-project isolation pattern stores Claude Code state (settings
 
 This step is idempotent. If you added the line, report it in the final summary.
 
-## Step 5: Final summary
+## Step 5: Materialise `main` if HEAD is unborn
+
+The TeamLead's RepoSteward branches every stage off `main` — but a freshly-`git init`'d repo with no commits has no `main` (HEAD is unborn until the first commit lands). Without a starting commit, RepoSteward correctly refuses to branch ("nothing to branch from") and the workflow blocks before it gets going.
+
+Bootstrap closes this gap by making a single initial commit when the repo doesn't yet have one.
+
+**Detection:**
+
+```bash
+if git rev-parse --verify HEAD >/dev/null 2>&1; then
+  echo "head_present"
+else
+  echo "head_unborn"
+fi
+```
+
+**Behaviour:**
+
+- **`head_unborn`** → make the initial commit:
+  ```bash
+  git add -A
+  git commit -m "chore: scaffold jfdi-agents project
+
+  Created by /jfdi-agents:bootstrap. Establishes main with the project
+  scaffolding (vision/, docs/, .claude/agents/, settings, gitignore) so
+  the TeamLead's RepoSteward can branch from it.
+
+  Next: launch the TeamLead with \`claude --agent jfdi-agents:team-lead\`."
+  ```
+  Use the **human's normal git config** as the author — bootstrap is a skill running interactively under the human's session, not an agent. Do not pass `--author=` and do not invoke `commit-as-agent`. Report the commit's short SHA in the final summary.
+
+- **`head_present`** → leave the working tree alone. Bootstrap is idempotent on already-initialised repos; if the human has scaffolded files that aren't yet committed, that's their decision to handle when they're ready. Do not silently `git add -A && commit` over an existing tree — the human may have other in-flight work.
+
+**Edge case:** if `head_unborn` and `git status --porcelain` produces no output (the working tree is empty after Steps 2–4 — somehow nothing was created), skip the commit. There is nothing to commit, and an empty `--allow-empty` commit just to materialise `main` adds noise without value. Report the empty state in the final summary; the human can intervene.
+
+## Step 6: Final summary
 
 Report to the user:
 
@@ -209,6 +244,17 @@ Created:
   docs/README.md
   .claude/agents/README.md
   .claude/settings.json (env + output style)
+
+Git state:
+  <one of:>
+    - Made initial commit on main (<short-sha>): "chore: scaffold jfdi-agents project".
+      RepoSteward will be able to branch from main when the TeamLead launches.
+    - HEAD already had commits — left the tree alone.
+      The scaffolding files above are uncommitted; please commit them
+      before launching the TeamLead, or RepoSteward will see a dirty
+      tree on the first branch open.
+    - HEAD unborn but working tree empty after scaffolding — no commit made.
+      Investigate; bootstrap should have produced files.
 
 Per-project isolation (STRONGLY RECOMMENDED before you launch)
 -----------------------------------------------
@@ -302,3 +348,4 @@ wherever the jfdi-agents plugin is installed on your machine.)
 - **No surprises.** Report every file the skill created. No silent changes.
 - **Do not run intake.** The bootstrap ends with a pointer to the Vision intake, it does not run it. The intake is the ProductOwner's job in its own session.
 - **Do not install any frameworks, bundlers, test runners, or runtimes.** Those are Architect decisions, taken during Stage 2, installed by the developer agents during Build.
+- **The initial commit (Step 5) only fires when HEAD is unborn.** If commits already exist, the human owns when and how to commit the scaffolding — bootstrap does not silently `git add -A && commit` over an existing tree. The commit's author is the human's git config (no `--author=` slug), because the bootstrap skill runs interactively under the human's session, not as an agent.
