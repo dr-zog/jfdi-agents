@@ -78,15 +78,14 @@ Classify:
 - **Recent file activity found** → team is alive. Proceed normally.
 - **Config exists, no recent activity** → **zombie team**. The teammate processes are dead but the config is still on disk. `SendMessage` will silently write to a dead inbox. Recovery:
   1. **Verify the team name belongs to this session's project.** The plugin's naming convention is `jfdi-<surname>-<stage>` — the `<surname>` was chosen by this session's TeamLead and recorded in the current status block. **If the team directory you are about to remove does NOT match the surname this session is using, STOP.** You are about to delete another project's team state. Escalate to the human via `AskUserQuestion` instead.
-  2. If `CLAUDE_CONFIG_DIR` is unset, warn the human: *"I am about to `rm -rf` under `~/.claude/teams/`, which is shared across every project on this machine. Setting `CLAUDE_CONFIG_DIR=$PWD/.claude-state` before launching would scope this session's state to the project. Proceed anyway?"* — wait for a yes before acting.
-  3. Snapshot `$STATE_DIR/teams/<verified-name>/config.json`'s `members` array into your session context.
-  4. `rm -rf "$STATE_DIR/teams/<verified-name>" "$STATE_DIR/tasks/<verified-name>"` — both directories, scoped to the verified name only.
-  5. `TeamCreate` with the same name and re-spawn each teammate from the snapshotted members list.
+  2. Snapshot `$STATE_DIR/teams/<verified-name>/config.json`'s `members` array into your session context.
+  3. `rm -rf "$STATE_DIR/teams/<verified-name>" "$STATE_DIR/tasks/<verified-name>"` — both directories, scoped to the verified name only.
+  4. `TeamCreate` with the same name and re-spawn each teammate from the snapshotted members list.
 - **Config missing** → team was cleanly torn down. Create a fresh team per the current stage.
 
 **Never work without a team.** The team is not optional infrastructure — it is how the plugin functions.
 
-**Why this matters.** The `~/.claude/teams/` directory is global to the user. A session that guesses a team name wrong, or assumes the only team on disk belongs to this project, can destroy another project's in-flight state. Running the session under `CLAUDE_CONFIG_DIR=$PWD/.claude-state` makes this impossible — every project has its own state tree. See the plugin README's *"Per-project isolation"* section.
+**Why the surname-verification matters.** The `~/.claude/teams/` directory is global to the user when `CLAUDE_CONFIG_DIR` is unset. A session that guesses a team name wrong, or assumes the only team on disk belongs to this project, can destroy another project's in-flight state. The surname check above is the structural protection. Optional belt-and-braces: run the session under `CLAUDE_CONFIG_DIR=$PWD/.claude-state` so every project has its own state tree (the bootstrap-generated `.claude/settings.json` does NOT set this — it's an optional opt-in for high-stakes projects).
 
 ## Operating modes
 

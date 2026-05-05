@@ -52,11 +52,18 @@ claude plugin install jfdi-agents@jfdi-agents --scope project
 
 You should see `jfdi-agents@jfdi-agents` marked enabled. From here on, every new Claude Code session loads the plugin automatically — no `--plugin-dir`, no flags.
 
+In a project where `/jfdi-agents:bootstrap` has run, the project's `.claude/settings.json` declares `jfdi-agents:team-lead` as the default agent, so plain `claude` Just Works:
+
+```bash
+cd /path/to/your/jfdi-project
+claude
+```
+
+If you want to override (e.g. launch the TeamLead from a directory that hasn't been bootstrap-ed for jfdi-agents), the explicit form still works:
+
 ```bash
 claude --agent jfdi-agents:team-lead
 ```
-
-Just works.
 
 ### Updating
 

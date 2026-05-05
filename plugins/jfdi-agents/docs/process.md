@@ -88,7 +88,9 @@ Stages have different cadences:
 
 ## The canonical flow — one shell command, one agent team, one session
 
-There is exactly one supported way to run this plugin: the human types `claude --agent jfdi-agents:team-lead`, the TeamLead's first action asks the human to authorise creation of a Claude Code agent team, and from that point the TeamLead is the lead of a series of stage-scoped teams. The TeamLead is the only agent that talks to the human directly; every other teammate relays user-facing questions through the TeamLead via `SendMessage`.
+There is exactly one supported way to run this plugin: the human types **`claude`** in a project that has been bootstrap-ed for jfdi-agents (the bootstrap-generated `.claude/settings.json` declares `jfdi-agents:team-lead` as the default agent, so no flag is needed). The TeamLead's first action asks the human to authorise creation of a Claude Code agent team, and from that point the TeamLead is the lead of a series of stage-scoped teams. The TeamLead is the only agent that talks to the human directly; every other teammate relays user-facing questions through the TeamLead via `SendMessage`.
+
+The explicit form `claude --agent jfdi-agents:team-lead` is equivalent and serves as a manual override for sessions in directories that have not been bootstrap-ed.
 
 The TeamLead itself never authors artefacts. It conducts; the specialists build.
 
@@ -109,13 +111,13 @@ The TeamLead itself never authors artefacts. It conducts; the specialists build.
 /jfdi-agents:bootstrap
 ```
 
-Bootstrap lays down the `vision/` and `docs/` directories (empty scaffolds), writes `.claude/settings.json` with the JFDI output-style and the agent-teams environment variable, and creates `.claude/agents/` ready for the Architect's minted developers.
+Bootstrap lays down the `vision/` and `docs/` directories (empty scaffolds), writes a comprehensive `.claude/settings.json` (default agent, output style, env vars, bypassPermissions, sandbox, marketplace pre-registration, plugin auto-enable), and creates `.claude/agents/` ready for the Architect's minted developers.
 
 ### Step 1 — Launch the TeamLead
 
 ```
 /exit
-claude --agent jfdi-agents:team-lead
+claude        # settings.json picks the TeamLead as the default agent
 ```
 
 ### Stage 0 — Team creation
@@ -311,7 +313,7 @@ The plugin supports three distinct agent invocation patterns. The first two are 
 
 | Pattern | Entry point | `AskUserQuestion` | Reference |
 |---|---|---|---|
-| **Lead** | `claude --agent jfdi-agents:team-lead` (main session) | Yes — direct human channel | `${CLAUDE_PLUGIN_ROOT}/docs/team-lead-playbook.md` |
+| **Lead** | `claude` in a bootstrap-ed project (settings.json picks `jfdi-agents:team-lead`); `claude --agent jfdi-agents:team-lead` is the explicit-override equivalent | Yes — direct human channel | `${CLAUDE_PLUGIN_ROOT}/docs/team-lead-playbook.md` |
 | **Teammate** | Spawned by the lead via `Agent` into the running team | No — `disallowed-tools: AskUserQuestion`, relays through the lead | This document, throughout |
 | **Solo** | `claude --agent <name>` (main session, human-paired, outside the team flow) | Yes | `${CLAUDE_PLUGIN_ROOT}/docs/solo-agents.md` |
 

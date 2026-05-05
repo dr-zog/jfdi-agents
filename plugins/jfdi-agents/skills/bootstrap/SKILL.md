@@ -1,6 +1,6 @@
 ---
 name: bootstrap
-description: One-stop pre-flight for starting a new project with the jfdi-agents plugin. Run this as the first thing after installing the plugin. Checks prerequisites (git), initialises a git repo if needed, writes the required Claude Code project settings to `.claude/settings.json` (the agent-teams env var, the 1M-context disable, and `outputStyle: "jfdi-agent"` — the load-bearing piece for system-prompt composition across every agent), creates the shared directory structure (`vision/`, `docs/`, `docs/demos/`, `.claude/agents/`), seeds placeholder READMEs. Idempotent — safe to re-run; existing files are left alone. Use this skill whenever a user installs the plugin for the first time, asks "how do I set up jfdi-agents in this repo?", or needs to repair a partially-bootstrapped project. After this completes, the project is ready for `claude --agent jfdi-agents:team-lead`.
+description: One-stop pre-flight for starting a new project with the jfdi-agents plugin. Run this as the first thing after installing the plugin. Checks prerequisites (git), initialises a git repo if needed, writes a comprehensive `.claude/settings.json` (default agent, output style, agent-teams env vars, bypassPermissions mode, sandboxing, marketplace pre-registration, plugin auto-enable), creates the shared directory structure (`vision/`, `docs/`, `docs/demos/`, `.claude/agents/`), seeds placeholder READMEs, and makes an initial commit if the repo is empty. Idempotent — safe to re-run; existing settings are merged not overwritten. Use this skill whenever a user installs the plugin for the first time, asks "how do I set up jfdi-agents in this repo?", or needs to repair a partially-bootstrapped project. After this completes, the project is ready for plain `claude` — the settings.json drives the rest.
 ---
 
 You are bootstrapping a new project for the `jfdi-agents` team. This skill is the human's one-stop prep command — it gets everything in order so the TeamLead can launch and run without bouncing the human back out for environment fixes. Idempotent — if something is already in place, leave it alone. If something is missing, create it. Never overwrite existing files unless you are explicitly merging a known JSON structure (like `.claude/settings.json`).
@@ -13,25 +13,7 @@ The specific languages, frameworks, and the per-layer developer agents are **not
 
 ## Step 1: Check prerequisites
 
-### 1a. Warn if `CLAUDE_CONFIG_DIR` is not scoped to the project
-
-Claude Code stores all state — settings, credentials, plugins, and crucially the agent-teams directory — under `CLAUDE_CONFIG_DIR` (defaults to `~/.claude`). If the human launches `claude` without overriding this, every project on the machine shares the same teams directory. A zombie-team recovery in this project's TeamLead session can then `rm -rf` another project's team state.
-
-Check whether `CLAUDE_CONFIG_DIR` is set **and** points inside the current project:
-
-```bash
-if [ -z "$CLAUDE_CONFIG_DIR" ]; then
-  echo "WARN: CLAUDE_CONFIG_DIR is unset — Claude Code will use ~/.claude (shared across every project on this machine)."
-elif [[ "$(cd "$CLAUDE_CONFIG_DIR" 2>/dev/null && pwd)" != "$PWD"* ]]; then
-  echo "WARN: CLAUDE_CONFIG_DIR ($CLAUDE_CONFIG_DIR) is not inside the project ($PWD)."
-else
-  echo "OK: CLAUDE_CONFIG_DIR is scoped to this project."
-fi
-```
-
-Print the result as-is. Do not refuse to continue on a warning — the human may have deliberately scoped it differently, or may be running a one-off eval. Record whichever state you observed and include it in the final summary so they can act if they want to.
-
-### 1b. Git repository
+### 1a. Git repository
 
 The plugin's whole workflow depends on git — feature branches per stage, Verifier sign-off via demo reports, incremental commits. If the current directory is not already a git repo, initialise one:
 
@@ -43,47 +25,104 @@ If `git init` fails (e.g. no `git` on `PATH`), stop and tell the user:
 
 > `git init` failed — git may not be installed or available in this shell. Please install git and re-run bootstrap.
 
-### 1c. Claude Code project settings — env vars + output style
+### 1b. Claude Code project settings — comprehensive `settings.json`
 
-The `jfdi-agents` plugin needs three entries in the project's `.claude/settings.json`. None of them are needed by bootstrap itself; they take effect when the user launches the TeamLead later. Bootstrap's job is simply to ensure they are present.
+Bootstrap writes a **complete** `.claude/settings.json` that drives every aspect of how `claude` behaves in this project. The goal: the human can `cd /path/to/project` and run plain `claude` — no flags, no env-var exports, no shell wrappers. The settings file does the work.
 
-**Two env vars:**
+**The full target shape:**
 
-1. **`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`** — the TeamLead uses agent teams to add specialists as named teammates and `SendMessage` to relay human answers back to them.
-2. **`CLAUDE_CODE_DISABLE_1M_CONTEXT=1`** — forces every agent to standard 200K context instead of Opus's plan-dependent 1M auto-upgrade. Cuts token burn and avoids Sonnet-teammate extra-usage errors on Max plans.
+```json
+{
+  "agent": "jfdi-agents:team-lead",
+  "outputStyle": "jfdi-agent",
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1"
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "skipDangerousModePermissionPrompt": true
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "filesystem": {
+      "allowRead": [".", "~/.claude"],
+      "allowWrite": [".", "~/.claude"],
+      "denyRead": [
+        "~/.aws/**",
+        "~/.ssh/**",
+        "~/.gnupg/**",
+        "~/.netrc",
+        "~/.bash_history",
+        "~/.zsh_history",
+        "~/.fish_history",
+        "~/.config/git/credentials"
+      ],
+      "denyWrite": [
+        "~/.aws/**",
+        "~/.ssh/**",
+        "~/.gnupg/**"
+      ]
+    }
+  },
+  "extraKnownMarketplaces": {
+    "jfdi-agents": {
+      "source": {
+        "source": "github",
+        "repo": "dr-zog/jfdi-agents"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "jfdi-agents@jfdi-agents": true
+  }
+}
+```
 
-**One output style:**
+**What each block does:**
 
-3. **`outputStyle: "jfdi-agent"`** — the plugin ships a custom output style at `${CLAUDE_PLUGIN_ROOT}/output-styles/jfdi-agent.md` that strips Claude Code's coding-focused default system prompt (`# Doing tasks`, `# Committing changes with git`, `# Creating pull requests`, the trailing "do not write .md files" directive, etc.) for every agent in the team. Most agents author Markdown artefacts — visions, architecture docs, decisions logs, demo reports, minted agent definitions — not code, and the coding defaults actively conflict with their roles. The minted Developer agents (and Verifier, for throw-away diagnostics) include coding guidance explicitly in their own bodies. See `${CLAUDE_PLUGIN_ROOT}/docs/system-prompt-composition.md` for the full rationale.
+- **`agent`** — sets the default main-thread agent. Plain `claude` in this directory now launches as `jfdi-agents:team-lead` with no `--agent` flag.
+- **`outputStyle`** — strips Claude Code's coding-focused default prompt for every agent. Load-bearing for system-prompt composition; see `${CLAUDE_PLUGIN_ROOT}/docs/system-prompt-composition.md`.
+- **`env`** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` enables the agent-teams machinery the TeamLead depends on. `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` forces standard 200K context to cut token burn and avoid Sonnet-teammate extra-usage errors on Max plans.
+- **`permissions.defaultMode: "bypassPermissions"`** — auto-approves tool calls. Equivalent to `--dangerously-skip-permissions`. Combined with the sandbox below, this is safer than it sounds: the sandbox restricts what tool calls can actually do at the OS level, while bypassPermissions just removes the prompts.
+- **`permissions.skipDangerousModePermissionPrompt`** — skips the warning prompt about bypass mode. The user has already opted in via this settings file.
+- **`sandbox`** — OS-level filesystem isolation. Reads and writes are restricted to the project directory and `~/.claude/` (Claude's own state). Common credential paths (`~/.aws/`, `~/.ssh/`, `~/.gnupg/`, history files, `~/.netrc`) are explicitly denied. This is the structural defence against the failure mode where Claude tries to be helpful by reading the user's home directory.
+- **`extraKnownMarketplaces.jfdi-agents`** — pre-registers the marketplace so first-launch in a fresh project doesn't silently fall back to the default Claude prompt because it never knew about us.
+- **`enabledPlugins["jfdi-agents@jfdi-agents"]: true`** — auto-enables the plugin alongside the marketplace registration. First launch installs and loads the plugin without needing `/plugin install` manually.
 
-Agent teams also requires Claude Code v2.1.32 or later. You cannot check the version reliably from inside a Bash tool call; just mention the requirement in the final summary.
+Agent teams requires Claude Code **v2.1.32 or later**. You cannot check the version reliably from inside a Bash tool call; mention the requirement in the final summary.
 
-**Use your native tools** — `Read`, `Write`, and `Edit` — to ensure all three entries are present. Do not use a Node one-liner or a Bash heredoc; those look alarming to a human watching the bootstrap for the first time. The approach:
+**Use your native tools** — `Read`, `Write`, and `Edit` — to ensure all entries are present. Do not use a Node one-liner or a Bash heredoc; those look alarming to a human watching the bootstrap for the first time. The approach:
 
 1. **Create the directory** if it doesn't exist: `mkdir -p .claude` (a simple, one-line Bash call).
 2. **Read** `.claude/settings.json` with the `Read` tool. If it doesn't exist, that's fine — you'll create it.
-3. **If the file doesn't exist**, use the `Write` tool to create it with:
-   ```json
-   {
-     "env": {
-       "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-       "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1"
-     },
-     "outputStyle": "jfdi-agent"
-   }
-   ```
-4. **If the file already exists**, parse the JSON you read. Check each of the three entries. If any is missing or has a different value:
-   - For the two env vars: add/update them in the `env` block, preserving any other `env` keys the user has set.
-   - For `outputStyle`: if it is missing, set it to `"jfdi-agent"`. If it is present with a **different value** (the user has a custom preference), **do not overwrite** — print a one-line warning and leave it alone. Respecting the user's explicit choice is more important than automation.
-   - Use `Write` rather than `Edit` for JSON merges because `Edit` is fragile with whitespace in JSON files.
+3. **If the file doesn't exist**, use the `Write` tool to create it with the full target shape above.
+4. **If the file already exists**, parse the JSON you read. **Merge** rather than overwrite, with this policy per top-level key:
 
-After the write (or no-op), report one line per entry:
+   | Key | If missing | If present and matches | If present and differs |
+   |---|---|---|---|
+   | `agent` | add | leave | warn, leave (respect user's pin) |
+   | `outputStyle` | add | leave | warn, leave |
+   | `env` | add | merge keys (preserve user's other env vars) | per-key: add missing, warn on differences |
+   | `permissions.defaultMode` | add | leave | warn, leave |
+   | `permissions.skipDangerousModePermissionPrompt` | add | leave | warn, leave |
+   | `permissions` (other keys) | leave entirely | — | — |
+   | `sandbox` | add (whole block) | leave (sandbox configs are intricate; don't try to deep-merge) | leave |
+   | `extraKnownMarketplaces.jfdi-agents` | add | leave | warn, leave |
+   | `extraKnownMarketplaces` (other entries) | leave | — | — |
+   | `enabledPlugins["jfdi-agents@jfdi-agents"]` | add (true) | leave | warn (e.g. user set false), leave |
 
-> Ensured `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, `CLAUDE_CODE_DISABLE_1M_CONTEXT=1`, and `outputStyle: "jfdi-agent"` in `.claude/settings.json`.
+   Use `Write` rather than `Edit` for JSON merges because `Edit` is fragile with whitespace in JSON files.
 
-**Bootstrap never stops at Step 1b.** The settings are infrastructure the TeamLead needs later, not something bootstrap depends on right now.
+5. **After the write (or no-op)**, report what was added or warned about, one line per finding:
 
-### 1d. Project state survey
+   > Ensured `agent`, `outputStyle`, `env`, `permissions`, `sandbox`, `extraKnownMarketplaces`, `enabledPlugins` in `.claude/settings.json`.
+   >  _(For each warning: "WARN: existing `agent` differs from `jfdi-agents:team-lead` — left alone")_
+
+**Bootstrap never stops here.** The settings drive the launch experience but bootstrap still needs to scaffold the directory tree.
+
+### 1c. Project state survey
 
 **Important.** Do *not* check directory existence with bare `ls -la <path>`. On a fresh repo, most of the paths this skill cares about do not exist yet, and `ls` on a missing path exits non-zero.
 
@@ -117,7 +156,7 @@ That is the whole directory tree. Deliberately small. No `cycles/`, no `features
 
 ## Step 3: Seed placeholder READMEs
 
-Create these files if they don't exist (use the Step 1d survey output — do not re-check with `ls`). Small stubs; the owning agents will fill the content later. If a file already exists, leave it alone and move on.
+Create these files if they don't exist (use the Step 1c survey output — do not re-check with `ls`). Small stubs; the owning agents will fill the content later. If a file already exists, leave it alone and move on.
 
 ### 3a. `vision/README.md`
 
@@ -243,7 +282,8 @@ Created:
   vision/README.md
   docs/README.md
   .claude/agents/README.md
-  .claude/settings.json (env + output style)
+  .claude/settings.json — full project config (agent, output style, env,
+                          permissions, sandbox, marketplace, plugin enable)
 
 Git state:
   <one of:>
@@ -256,84 +296,81 @@ Git state:
     - HEAD unborn but working tree empty after scaffolding — no commit made.
       Investigate; bootstrap should have produced files.
 
-Per-project isolation (STRONGLY RECOMMENDED before you launch)
+How to launch
 -----------------------------------------------
-Claude Code stores all state (settings, credentials, plugins, and the
-agent-teams directory) under CLAUDE_CONFIG_DIR — default ~/.claude.
-Every project on your machine shares that directory by default.
+Exit this session and run plain `claude` in this directory:
 
-This matters for the TeamLead: its zombie-recovery routine can
-`rm -rf` under $CLAUDE_CONFIG_DIR/teams/<name>/. With the default
-~/.claude/, a wrong-guess team name there can destroy another
-project's team state.
+  /exit
 
-To scope this session's state entirely to the current project:
+  cd /path/to/this/project   (if you're not already there)
+  claude
+
+The settings.json bootstrap just wrote tells Claude Code to:
+  - launch as the TeamLead (`agent: "jfdi-agents:team-lead"`)
+  - register the JFDI marketplace and auto-enable the plugin
+  - apply the JFDI output style across every agent in the session
+  - run with bypass-permissions mode (no per-tool prompts)
+  - sandbox tool calls to this project + ~/.claude (no leakage to your
+    home directory; ~/.aws, ~/.ssh, ~/.gnupg, history files, .netrc all
+    explicitly denied)
+  - export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 and the 1M-context
+    disable into every Claude session in this dir
+
+For continuation across sessions:
+
+  claude -c
+
+That's it. No `--agent` flag, no `--dangerously-skip-permissions`,
+no env-var exports.
+
+First time here?
+-----------------------------------------------
+The first time you run `claude` in a directory bootstrap-ed for
+jfdi-agents, Claude Code will prompt you to register the marketplace
+and install the plugin (one-time consent — the settings.json declared
+both, but a human still confirms the trust dance). Approve those, and
+every subsequent launch in this directory is silent.
+
+How to brief the TeamLead
+-----------------------------------------------
+The TeamLead's first action is to ask you to confirm creation of a
+Claude Code agent team. Confirm "Proceed". Then prompt it with how
+you want it to run. Default is Checkpointed mode (pauses for approval
+after each major stage):
+
+  "Proceed in Checkpointed mode. Start from zero — this is a fresh
+  project. Run the Vision intake with me, then drive through
+  architecture & team design, the walking-skeleton build, and
+  refinement — pausing for my approval after each stage."
+
+Autonomous JFDI mode is available for users who trust the team to
+run without intervention; see /jfdi-agents:start for both prompts.
+"Autonomous JFDI" is strict — no human checkpoint means every step
+runs, including the sequential-skeleton rule and every Verifier pass.
+
+There is only one supported way to run this plugin: launching as the
+TeamLead (which the settings.json does for you). Specialist
+main-session launches like `claude --agent jfdi-agents:product-owner`
+are not supported — the specialists cannot talk to the human on their
+own (AskUserQuestion is disallowed at the frontmatter level), so they
+only function as teammates of the TeamLead-led team.
+
+Optional: per-project isolation via CLAUDE_CONFIG_DIR
+-----------------------------------------------
+The settings.json above is sufficient for safe operation — sandbox
+prevents filesystem leakage and the team-name verification in the
+TeamLead body prevents cross-project zombie-recovery damage.
+
+If you want even stronger isolation (per-project teams directory,
+per-project plugin cache, per-project credentials), set:
 
   export CLAUDE_CONFIG_DIR="$PWD/.claude-state"
-  mkdir -p "$CLAUDE_CONFIG_DIR"
+  claude
 
-Once set, every `claude ...` command in this shell uses ./.claude-state/
-for everything — teams, tasks, projects, plugins, auth. Cross-project
-collisions are impossible.
-
-Caveats:
-  - First launch in a new CLAUDE_CONFIG_DIR wants a fresh `claude auth
-    login` and `/plugin install jfdi-agents@jfdi-agents`.
-  - .claude-state/ contains credentials — add it to .gitignore.
-
-Next step — launch the TeamLead
------------------------------------------------
-The TeamLead is the one-shell-command entry point to the whole workflow.
-It runs as a main-session agent that reads the project state, figures out
-which stage the team is in (starting from "no Vision yet" if this project
-is fresh), and adds the appropriate specialist as a foreground teammate.
-Questions from the specialist are piped back to the TeamLead session for
-you to answer directly — no exit-and-relaunch between stages.
-
-  1. Exit this session:
-
-       /exit
-
-  2. (Recommended) Scope state to this project, then launch:
-
-       export CLAUDE_CONFIG_DIR="$PWD/.claude-state"
-       mkdir -p "$CLAUDE_CONFIG_DIR"
-       claude --agent jfdi-agents:team-lead
-
-     (If running in dev mode with --plugin-dir, prepend the flag:
-      claude --plugin-dir "<absolute-path-to-plugin-checkout>" \
-             --agent jfdi-agents:team-lead)
-
-  3. When prompted, tell the TeamLead how you want it to run. Default
-     is Checkpointed mode, which pauses for your approval after each major
-     stage. Say something like:
-
-       "Proceed in Checkpointed mode. Start from zero — this is a fresh
-       project. Run the Vision intake with me, then drive through
-       architecture & team design, the walking-skeleton build, and
-       refinement — pausing for my approval after each stage."
-
-     Autonomous JFDI mode is also available for users who trust the team
-     to run without intervention; see /jfdi-agents:start for both prompts.
-     (Note: "Autonomous JFDI" is strict — no human checkpoint means every
-     step runs, including the sequential-skeleton rule and every Verifier
-     pass.)
-
-The TeamLead's first action will be to ask you to confirm creation of a
-Claude Code agent team. Confirm "Proceed" and it'll spawn ProductOwner
-as an interactive teammate for the intake. Every question during intake
-comes to you as an AskUserQuestion in the TeamLead's session — you never
-have to switch between sessions. When the intake is done, the TeamLead
-spawns Architect alongside ProductOwner for Stage 2, which produces the
-architecture doc, the acceptance list, and one `.claude/agents/<layer>-dev.md`
-per minted developer. After that, Build runs one layer at a time.
-
-There is only one supported way to run this plugin: launching the
-TeamLead as shown. Specialist main-session launches like
-`claude --agent jfdi-agents:product-owner` are not supported — the
-specialists cannot talk to the human on their own (AskUserQuestion is
-disallowed at the frontmatter level), so they only function as
-teammates of the TeamLead-led team.
+This is optional. The cost is per-project `claude auth login`. Not
+recommended unless you're running multiple high-stakes projects on
+the same machine and want belt-and-suspenders. `.claude-state/` is
+already in .gitignore so credentials won't be committed.
 
 Read ${CLAUDE_PLUGIN_ROOT}/docs/terminology.md and
 ${CLAUDE_PLUGIN_ROOT}/docs/process.md first if you want to know the

@@ -56,9 +56,9 @@ After the install completes, reload plugins so the new skills are visible:
 /jfdi-agents:bootstrap
 ```
 
-This is the plugin's pre-flight skill. It checks git, initialises a repo if needed, writes the required env vars to `.claude/settings.json` at project scope (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` and `CLAUDE_CODE_DISABLE_1M_CONTEXT=1`), sets the `jfdi-agent` output style, and lays down a deliberately-small directory tree (`vision/`, `docs/`, `docs/demos/`, `.claude/agents/`). Idempotent; safe to re-run. No frameworks or test runners are chosen here — the Architect makes those decisions during Stage 2, once the Vision is known.
+This is the plugin's pre-flight skill. It checks git, initialises a repo if needed, writes a comprehensive `.claude/settings.json` (default agent set to `jfdi-agents:team-lead`, output style, agent-teams env vars, bypassPermissions mode, OS-level sandbox restricting reads/writes to the project + `~/.claude` with explicit denies for `~/.aws/`, `~/.ssh/`, `~/.gnupg/`, history files, `.netrc`, marketplace pre-registration, plugin auto-enable), and lays down a deliberately-small directory tree (`vision/`, `docs/`, `docs/demos/`, `.claude/agents/`). Idempotent; safe to re-run. Existing settings are merged not overwritten.
 
-**Step 3 — Exit this session and launch the TeamLead in a fresh one.** Claude Code picks its main-thread agent at session launch, so you need a new session with TeamLead as its main thread:
+**Step 3 — Exit this session and run plain `claude`.** Claude Code picks its main-thread agent at session launch, so you need a new session — but you don't need to remember any flags. The settings.json bootstrap just wrote does the work:
 
 ```
 /exit
@@ -67,8 +67,12 @@ This is the plugin's pre-flight skill. It checks git, initialises a repo if need
 Then from your terminal, still in the same project directory:
 
 ```bash
-claude --agent jfdi-agents:team-lead
+claude
 ```
+
+That's it. No `--agent` flag. No `--dangerously-skip-permissions`. No env-var exports. The settings.json declares the default agent, the permission mode, the marketplace, and the plugin enable.
+
+**First launch in a project**: Claude Code prompts you to register the marketplace and install the plugin (the settings.json declared both, but the trust dance still requires your confirmation). Approve those once; subsequent launches in this directory are silent.
 
 **Step 4 — Tell the TeamLead to get started.** Claude Code sessions start idle — the TeamLead's system prompt is loaded but it won't do anything until you prompt it. Paste this to kick off the default Checkpointed-mode workflow:
 
@@ -84,42 +88,38 @@ For an unattended run — team drives all the way to a green acceptance list wit
 Run in Autonomous JFDI mode. Drive the Vision intake with me (autonomy begins once Vision is captured), then continue through architecture, the walking-skeleton build, and refinement until the acceptance list is fully green. Stop only on a specialist blocker. Remember: Autonomous JFDI means every rule still runs — sequential-skeleton rule, folder-ownership rule, Verifier sign-off between stages. No shortcuts.
 ```
 
+**To continue an existing session**: `claude -c` (still no flags needed — the settings.json applies to continued sessions too).
+
 **Prerequisites:**
 
 - Claude Code v2.1.32 or later — [agent teams](https://code.claude.com/docs/en/agent-teams) are a hard requirement.
-- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` and `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` in Claude Code settings — the Step 2 `/jfdi-agents:bootstrap` skill auto-writes both to `.claude/settings.json` (project scope) if missing, so you don't need to set them manually.
+- The settings.json bootstrap writes is project-scoped (`.claude/settings.json` is committed to git so all collaborators get the same setup). Per-user overrides go in `.claude/settings.local.json` (gitignored by Claude Code convention).
 
 Full install details (updating, uninstalling, dev mode for contributors, private-repo auth) in [`plugins/jfdi-agents/docs/local-install.md`](plugins/jfdi-agents/docs/local-install.md).
 
-## Per-project isolation (strongly recommended)
+## Filesystem isolation — built into the bootstrap-generated settings
 
-Claude Code stores **all** state — settings, credentials, plugins, session history, and the agent-teams directory — under `CLAUDE_CONFIG_DIR` (default `~/.claude`). Every project on your machine shares that directory by default.
+The settings.json bootstrap writes enables Claude Code's OS-level sandbox with reads and writes restricted to the project directory + `~/.claude/` (so the team can manage its own state). Common credential paths are explicitly denied:
 
-This is a problem for this plugin specifically: the TeamLead's zombie-recovery routine is destructive (`rm -rf` of a team directory) and operates under whatever `CLAUDE_CONFIG_DIR` points at. A recovery against a mistakenly-identified team name in the shared `~/.claude/teams/` tree can wipe a team belonging to a different project.
+- `~/.aws/**`, `~/.ssh/**`, `~/.gnupg/**`
+- `~/.netrc`, `~/.bash_history`, `~/.zsh_history`, `~/.fish_history`
+- `~/.config/git/credentials`
 
-The fix is one environment variable. Scope a session's entire state tree to the project by setting `CLAUDE_CONFIG_DIR` before launching:
+This is the structural defence against the failure mode where Claude tries to be helpful by reading the user's home directory. The team's tool calls cannot leak personal data outside the project tree.
+
+## Optional: per-project isolation via `CLAUDE_CONFIG_DIR`
+
+The settings.json above is sufficient for safe operation. Sandbox handles filesystem isolation; the TeamLead's zombie-recovery routine refuses to `rm -rf` team directories whose names don't match this session's surname.
+
+If you want **even stronger** isolation — per-project teams directory, per-project plugin cache, per-project credentials — set `CLAUDE_CONFIG_DIR` before launching:
 
 ```bash
 cd /path/to/your/project
 export CLAUDE_CONFIG_DIR="$PWD/.claude-state"
-mkdir -p "$CLAUDE_CONFIG_DIR"
-claude --agent jfdi-agents:team-lead
+claude
 ```
 
-Or as a shell alias:
-
-```bash
-alias claude-jfdi='CLAUDE_CONFIG_DIR="$PWD/.claude-state" claude'
-```
-
-With `CLAUDE_CONFIG_DIR` scoped, cross-project collisions are structurally impossible. The TeamLead's zombie recovery can only ever touch this project's state tree.
-
-**Caveats:**
-
-- First launch in a fresh `CLAUDE_CONFIG_DIR` wants its own `claude auth login` and `/plugin install jfdi-agents@jfdi-agents`. The isolation is stronger at the cost of a per-project setup.
-- `.claude-state/` contains credentials — the bootstrap skill adds it to your `.gitignore` automatically. If you rename the directory, make sure your own `.gitignore` still catches it.
-
-**If you don't set `CLAUDE_CONFIG_DIR`**, the bootstrap skill warns you at setup, the TeamLead warns you at session start, and any destructive zombie recovery requires explicit human confirmation first. But the safe-by-default posture is to scope every session.
+The cost is per-project `claude auth login` (the scoped dir starts with no credentials). `.claude-state/` is already in `.gitignore` so credentials won't be committed. Recommended only if you're running multiple high-stakes projects on the same machine and want belt-and-suspenders.
 
 ## The roster
 
@@ -160,7 +160,7 @@ Full definitions in [`plugins/jfdi-agents/docs/terminology.md`](plugins/jfdi-age
 2. /plugin install jfdi-agents@jfdi-agents
 3. /jfdi-agents:bootstrap
 4. /exit
-5. claude --agent jfdi-agents:team-lead
+5. claude                                # settings.json picks the agent
 6. "Proceed in Checkpointed mode..."
 7. Walk through the Vision intake. Answer questions that appear in the TeamLead session.
 8. After architecture: review the layer list and the acceptance list; approve or redirect.
@@ -175,7 +175,7 @@ The **TeamLead** is the single main-session agent that drives the whole workflow
 
 **Checkpointed mode** (default) pauses for your approval after every load-bearing transition — post-intake, post-architecture, per Build-layer demo, post-skeleton-complete, per Refine-pass demo. **Autonomous JFDI mode** runs straight through without pausing; opt in explicitly when you want it. The mode names are deliberate: Checkpointed means "I'll catch shortcuts"; Autonomous JFDI means "you can't catch them, so don't take any". Every rule (sequential-skeleton, folder-ownership, Verifier sign-off) remains non-negotiable in Autonomous JFDI — the lack of a human checkpoint makes the process rigour *more* important, not less.
 
-**There is only one supported invocation path.** `claude --agent jfdi-agents:team-lead` creates the team and drives everything inside it. Per-role main-session launches are **not supported** — the specialists cannot function outside the TeamLead-led team because `AskUserQuestion` is disallowed and their prompts assume the relay.
+**There is only one supported invocation path.** Plain `claude` in a bootstrap-ed project (or `claude --agent jfdi-agents:team-lead` if you want to override the settings.json default) creates the team and drives everything inside it. Per-role main-session launches are **not supported** — the specialists cannot function outside the TeamLead-led team because `AskUserQuestion` is disallowed and their prompts assume the relay.
 
 ## The minted developers
 

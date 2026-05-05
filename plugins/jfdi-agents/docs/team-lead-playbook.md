@@ -44,9 +44,10 @@ One branch per stage. RepoSteward creates at stage start, merges at stage close.
 
 When the TeamLead main session launches, execute these steps in order.
 
-1. **Verify environment.** Check two things:
+1. **Verify environment.**
    - `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` is set. If the bootstrap skill has been run, it'll be in `.claude/settings.json`. Warn the human if missing.
-   - `CLAUDE_CONFIG_DIR` is set to a path inside the project (typical: `$PWD/.claude-state`). If unset, surface a warning via `AskUserQuestion`: *"Your Claude Code state directory is the global `~/.claude/` — teams from other projects share this tree. Recommended: exit, set `CLAUDE_CONFIG_DIR=$PWD/.claude-state`, and relaunch. Proceed anyway, or exit now to set it?"* — proceed only on an explicit *"proceed anyway"*. See the plugin README § *"Per-project isolation"*.
+   - **Sandbox is enabled** in `.claude/settings.json` (`sandbox.enabled: true`). If absent, warn the human that filesystem isolation is off. Bootstrap-generated settings.json includes the sandbox by default — its absence usually means the project pre-dates bootstrap or settings.json has been edited.
+   - **`CLAUDE_CONFIG_DIR` is optional**. The bootstrap-generated settings.json gives sandbox + verified-name protection without needing it. Don't warn or block on it being unset; just note its state in your status block for transparency. (If the human has set it, the zombie-recovery routine will use the scoped state tree.)
 2. **Survey the project state.** Read (non-exhaustively): `vision/*` (does the Vision exist?), `docs/architecture.md` (is architecture done?), `.claude/agents/*-dev.md` (are developers minted?), `docs/demos/` (what's the last demo status?). The survey tells you which stage to enter.
 3. **Decide the stage.**
 
@@ -255,14 +256,13 @@ Symptom: a team directory exists under `$CLAUDE_CONFIG_DIR/teams/<name>/` (or `~
 **Before you run any `rm`:**
 
 1. **Confirm the team name matches this session's surname.** The TeamLead picked a surname at session start (see § 1.1) and every team this session created follows the `jfdi-<surname>-*` pattern. If the zombie directory's name does not start with the surname this session is using, **STOP** — you are about to destroy another project's team state. Escalate to the human via `AskUserQuestion`: *"I see a zombie team `<name>` that does not match this session's surname `<our-surname>`. It likely belongs to another project. Should I leave it alone?"*
-2. **Confirm isolation.** If `CLAUDE_CONFIG_DIR` is unset, your state tree is `~/.claude/` — shared with every other project on this machine. Warn the human: *"`CLAUDE_CONFIG_DIR` is not set. I am about to `rm -rf` under `~/.claude/teams/`, which is global. Should I proceed, or do you want to exit and relaunch with `CLAUDE_CONFIG_DIR=$PWD/.claude-state` first?"* — proceed only on an explicit *"proceed"*.
-3. **Snapshot `config.json`'s `members` array** so you can re-spawn the same teammates under the same names.
-4. **Remove both directories together**, scoped to the verified name:
+2. **Snapshot `config.json`'s `members` array** so you can re-spawn the same teammates under the same names.
+3. **Remove both directories together**, scoped to the verified name:
    ```bash
    STATE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
    rm -rf "$STATE_DIR/teams/<verified-name>" "$STATE_DIR/tasks/<verified-name>"
    ```
-5. **`TeamCreate` with the same name and re-spawn** each teammate from the snapshot.
+4. **`TeamCreate` with the same name and re-spawn** each teammate from the snapshot.
 
 **Never improvise the `rm`.** A wildcard, a guessed name, or a "clean everything" sweep is always wrong. One verified team name per recovery.
 

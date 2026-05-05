@@ -83,7 +83,12 @@ First TeamLead action when launched:
 
 To start, /exit this session and from your terminal run:
 
-    (installed mode)
+    (installed mode, project bootstrap-ed)
+    claude
+    # the .claude/settings.json bootstrap wrote declares
+    # jfdi-agents:team-lead as the default agent, so no flag needed.
+
+    (installed mode, no bootstrap yet — agent flag is the override)
     claude --agent jfdi-agents:team-lead
 
     (dev mode)
