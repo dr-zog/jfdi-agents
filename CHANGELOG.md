@@ -8,6 +8,12 @@ Entries from `0.4.3` onward are generated automatically by the `release-on-merge
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-05-06
+
+### Fixed
+
+- fix(ci): remove the gitignore-then-force contradiction for binaries (!9)
+
 ## [0.6.0] - 2026-05-06
 
 ### Added
