@@ -1,6 +1,6 @@
 {
   "name": "jfdi-agents",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "An opinionated agent team for Claude Code that autonomously designs and builds software. The Product Owner and Architect scope the system, then the Architect mints a small set of tailored per-layer developer agents (backend, frontend, middleware, shared, etc.) into the project. The team walks the stack sequentially to build a walking skeleton, then works in parallel — each developer owning its own folder — to refine the product against a high-level acceptance list. Deliberately lightweight on ceremony: no formal specs, no Gherkin, no roadmap — just a vision, a folder map, and agents that build.",
   "author": {
     "name": "jfdi-agents contributors"

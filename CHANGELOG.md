@@ -8,6 +8,13 @@ Entries from `0.4.3` onward are generated automatically by the `release-on-merge
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-06
+
+### Added
+
+- feat(team-inspect): implement list and inspect subcommands (!7)
+- ci: distribute team-inspect prebuilt binaries via publish-to-github (!8)
+
 ## [0.5.0] - 2026-05-05
 
 ### Added

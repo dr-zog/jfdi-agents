@@ -23,6 +23,12 @@ dist/
 build/
 *.tsbuildinfo
 
+# team-inspect cross-built binaries — produced by `scripts/build-team-inspect.sh`.
+# Distributed to the GitHub mirror by the publish-to-github CI job; never
+# committed to GitLab. The OS/arch subdirectories are ignored; the parent
+# directory's .gitkeep stays tracked so the path exists.
+plugins/jfdi-agents/bin/team-inspect/*/
+
 # Env
 .env
 .env.local
