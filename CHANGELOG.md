@@ -8,6 +8,12 @@ Entries from `0.4.3` onward are generated automatically by the `release-on-merge
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-07
+
+### Added
+
+- fix(bootstrap): restore ~/.claude isolation; migrate marketplace to dr-zog/ai-marketplace (!10)
+
 ## [0.6.1] - 2026-05-06
 
 ### Fixed

@@ -1,8 +1,8 @@
 # Instructions for Claude Code working in this repo
 
-This repository is a **one-plugin Claude Code marketplace**. The marketplace catalog lives at the repo root (`.claude-plugin/marketplace.json`), and the single plugin it ships — `jfdi-agents` — lives at `plugins/jfdi-agents/`. The plugin contains a TeamLead conductor plus four specialists (ProductOwner, Architect, Verifier, RepoSteward) that drive software development using the **JFDI** pattern: the Architect mints per-layer developer agents into the downstream project at architecture time, the team walks the stack sequentially to build a walking skeleton, then parallelises refinement.
+This repository is the **plugin source** for `jfdi-agents`, published via CI to [`github.com/dr-zog/jfdi-agents`](https://github.com/dr-zog/jfdi-agents) and catalogued at the [`dr-zog/ai-marketplace`](https://github.com/dr-zog/ai-marketplace) marketplace. The plugin lives at `plugins/jfdi-agents/` and contains a TeamLead conductor plus four specialists (ProductOwner, Architect, Verifier, RepoSteward) that drive software development using the **JFDI** pattern: the Architect mints per-layer developer agents into the downstream project at architecture time, the team walks the stack sequentially to build a walking skeleton, then parallelises refinement.
 
-When you are working in *this* repo (editing the plugin or the marketplace shell), these rules apply. When you are running the plugin *against* a downstream project, a completely different set of agent system prompts applies — those are the `agents/*.md` files inside the plugin, not this file.
+When you are working in *this* repo (editing the plugin), these rules apply. When you are running the plugin *against* a downstream project, a completely different set of agent system prompts applies — those are the `agents/*.md` files inside the plugin, not this file.
 
 ## Canonical references
 
@@ -33,7 +33,7 @@ Key tool-resolution rules (see `plugins/jfdi-agents/docs/team-lead-playbook.md` 
 - Teammate frontmatter `tools`/`disallowed-tools` is honoured. `disallowed-tools` is applied first; `tools` is resolved against the remaining pool.
 - **Teammates inherit the lead's permission restrictions.** Keep the TeamLead's denylist empty; push role-specific restrictions to the specialists themselves.
 - **`AskUserQuestion` is harness-blocked for every teammate**, regardless of frontmatter. Any agent whose role requires structured multi-choice questions must run as the main session. That is why TeamLead is the only supported main-session entry point; Vision intake is TeamLead-driven.
-- Plugin-shipped agents load from `~/.claude/plugins/cache/jfdi-agents-jfdi-agents/<version>/`, not the source tree. Frontmatter edits take effect on live installs only after a version bump + `/plugin update` (or a dev-mode install).
+- Plugin-shipped agents load from `<CLAUDE_CONFIG_DIR>/plugins/cache/dr-zog-jfdi-agents/<version>/` — under the bootstrap-generated `./jfdi.sh` launcher this resolves to `./.claude-state/plugins/cache/dr-zog-jfdi-agents/<version>/`, not the source tree. Frontmatter edits take effect on live installs only after a version bump + `/plugin update` (or a dev-mode install).
 - **The Architect-minted developer agents are project-scoped** — they live in `.claude/agents/` in the *downstream* project, not in the plugin. Edits to them take effect immediately on the next spawn; there is no plugin cache for them.
 
 System-prompt composition:
@@ -50,14 +50,15 @@ Skills for authoring new agents against these rules:
 
 ## What lives where
 
-### Marketplace shell (repo root)
+### Repo-level shell (repo root)
 
-- **`.claude-plugin/marketplace.json`** — the one-entry marketplace catalog. Declares the `jfdi-agents` plugin with `"source": "./plugins/jfdi-agents"`.
-- **`README.md`** — the user-facing top-level README. Describes both the marketplace and the plugin. Keep the install instructions at the top.
+- **`README.md`** — the user-facing top-level README. Describes the plugin and points at the install flow (marketplace add → install → bootstrap → `./jfdi.sh`). Keep the install instructions at the top.
 - **`LICENSE`** — MIT, covers the whole repo.
 - **`NOTICE.md`** — third-party attributions.
 - **`.gitignore`** — repo-level ignores.
 - **`CLAUDE.md`** — this file.
+
+> **Note on marketplace migration (v0.6.x → v0.7.x).** Previously this repo also held a `.claude-plugin/marketplace.json` catalog so the repo URL could be added directly as a marketplace. That file has been removed; the marketplace catalog now lives in the separate [`dr-zog/ai-marketplace`](https://github.com/dr-zog/ai-marketplace) repo, alongside other plugins. The `publish-to-github` CI stage continues to publish plugin source to `dr-zog/jfdi-agents`, which is what the `dr-zog/ai-marketplace` catalog references.
 
 ### Plugin (`plugins/jfdi-agents/`)
 
@@ -93,10 +94,11 @@ Shared docs are load-bearing. Changes propagate to every agent. Treat them the w
 - Renames and redefinitions are breaking changes — check that no agent definition relies on the old wording before shipping.
 - Removals require explicit reasoning in the commit message.
 
-## When editing the marketplace shell
+## When editing the install surface
 
-- Changing `source`, `name`, or the plugin list in `.claude-plugin/marketplace.json` is an install-breaking change for anyone who already has the plugin installed. Treat it like a schema migration: flag it clearly in the commit message.
-- Never add a second plugin to the marketplace without updating `plugins/jfdi-agents/docs/local-install.md` and the top-level README to reflect the new layout.
+- Changes to install commands (marketplace name, plugin slug) ripple through `plugins/jfdi-agents/skills/bootstrap/SKILL.md` (the settings.json template), the top-level `README.md` Quick Start, `plugins/jfdi-agents/docs/local-install.md`, `plugins/jfdi-agents/docs/process.md` Step 0, and `evals/README.md`. Update them all in the same MR or installs will drift.
+- Changes to the launcher script `./jfdi.sh` (generated by bootstrap) ripple through every doc that mentions `./jfdi.sh` as the launch command — see the same surfaces above.
+- Marketplace migrations (e.g. moving from one marketplace to another) are install-breaking for existing installs. Flag them clearly in the MR description and label `semver::minor` (pre-1.0) or `semver::major` (post-1.0).
 
 ## Development process
 

@@ -1,124 +1,113 @@
-# Running the plugin without `--plugin-dir`
+# Installing the plugin
 
-> **TL;DR.** Every `claude --agent jfdi-agents:<name>` command in this plugin's docs assumes the plugin is installed to a persistent Claude Code scope. If you cloned the repo and ran `claude --plugin-dir ./jfdi-agents`, the plugin is **not** installed — it's loaded for that one session only. This doc tells you how to install it properly, once, so every future session picks it up automatically.
+> **TL;DR.** Two slash-commands install the plugin from the public marketplace, then `/jfdi-agents:bootstrap` prepares the project (writing `.claude/settings.json` and a `./jfdi.sh` launcher), then `./jfdi.sh` becomes the only command you ever need to run from then on.
 
-## The problem
-
-Claude Code loads plugins from three places:
+## The three modes Claude Code can load a plugin from
 
 1. **An installed scope** — `~/.claude/settings.json` (user), `<project>/.claude/settings.json` (project), or `<project>/.claude/settings.local.json` (local). A plugin registered here is loaded by every new Claude Code session in that scope.
 2. **A marketplace** — a catalog file at `.claude-plugin/marketplace.json` somewhere Claude Code can see it. Once you `/plugin marketplace add <source>` it, you can `/plugin install <plugin>@<marketplace>` to move the plugin into one of the installed scopes above.
 3. **The `--plugin-dir` CLI flag** — a one-off, session-scoped load. Only that one session sees the plugin. The next `claude` invocation has no memory of it.
 
-If you're in mode 3, every `claude --agent jfdi-agents:<name>` you type without `--plugin-dir` fails. This is deliberate — `--plugin-dir` is for iterating on a plugin, not for running one.
+For end-users running the plugin to build a product, mode 2 is correct — install once, never think about it again. For maintainers iterating on the plugin's source, mode 3 (dev mode) gives a fast reload loop without the install-cache dance.
 
-## Recommended — install from the plugin repo's git URL
+## End-user install — from the public `dr-zog/ai-marketplace` marketplace
 
-The plugin repo ships its own `.claude-plugin/marketplace.json` at the root, which means the repo itself *is* a valid marketplace containing exactly one plugin: `jfdi-agents`. You can add the repo URL directly as a marketplace and install from it in two commands.
+The plugin is published to the [`dr-zog/ai-marketplace`](https://github.com/dr-zog/ai-marketplace) marketplace on GitHub. That marketplace's `marketplace.json` declares `jfdi-agents` (alongside any other plugins the marketplace publishes) and points at the [`dr-zog/jfdi-agents`](https://github.com/dr-zog/jfdi-agents) source repo.
 
 **Step 1. Add the marketplace.**
 
 From any running Claude Code session:
 
 ```
-/plugin marketplace add https://github.com/dr-zog/jfdi-agents.git
+/plugin marketplace add dr-zog/ai-marketplace
 ```
 
-Substitute your own remote URL if you've forked the plugin or are hosting it elsewhere. Any git URL works — GitHub, GitLab (self-hosted or cloud), Bitbucket, SSH, HTTPS, with or without `.git`.
-
-Claude Code clones the repo, reads `.claude-plugin/marketplace.json`, and registers the marketplace under the name declared there (`jfdi-agents`). The registration persists in `~/.claude/plugins/known_marketplaces.json` — you only do this once per machine.
+Claude Code clones the marketplace repo, reads its `marketplace.json`, and registers the marketplace under the name declared there (`dr-zog`). The registration persists in `<CLAUDE_CONFIG_DIR>/plugins/known_marketplaces.json` — you only do this once per machine *per Claude home*. (See "Per-project Claude home" below — under the `./jfdi.sh` launcher, each JFDI project has its own marketplace registration, which is the correct isolation.)
 
 **Step 2. Install the plugin.**
 
 Still in a Claude Code session:
 
 ```
-/plugin install jfdi-agents@jfdi-agents
+/plugin install jfdi-agents@dr-zog
 ```
 
-The `jfdi-agents@jfdi-agents` form is `<plugin-name>@<marketplace-name>` — they are the same name because the marketplace contains exactly one plugin, itself. Claude Code fetches the plugin from the repo, copies it into the versioned cache at `~/.claude/plugins/cache/jfdi-agents-jfdi-agents/<version>/`, and writes an entry to `~/.claude/settings.json` (or wherever you scoped it) under `enabledPlugins`.
+The `jfdi-agents@dr-zog` form is `<plugin-name>@<marketplace-name>`. Claude Code fetches the plugin from `dr-zog/jfdi-agents`, copies it into the versioned cache at `<CLAUDE_CONFIG_DIR>/plugins/cache/dr-zog-jfdi-agents/<version>/`, and writes an entry to `<CLAUDE_CONFIG_DIR>/settings.json` (or wherever you scoped it) under `enabledPlugins`.
 
-Default scope is **user** — the plugin loads for every Claude Code session you run, in every project. Pass `-s project` or `-s local` to the CLI form if you want a different scope:
+Default scope is **user** — the plugin loads for every Claude Code session you run in that Claude home. Pass `-s project` or `-s local` to the CLI form if you want a different scope:
 
 ```bash
-claude plugin install jfdi-agents@jfdi-agents --scope project
+claude plugin install jfdi-agents@dr-zog --scope project
 ```
 
-**Step 3. Verify.**
+**Step 3. Run the bootstrap pre-flight.**
 
 ```
-/plugin list
+/jfdi-agents:bootstrap
 ```
 
-You should see `jfdi-agents@jfdi-agents` marked enabled. From here on, every new Claude Code session loads the plugin automatically — no `--plugin-dir`, no flags.
+This is the plugin's pre-flight skill. It writes a comprehensive `.claude/settings.json`, lays down the directory tree (`vision/`, `docs/`, `docs/demos/`, `.claude/agents/`, `.claude-state/`), and generates a `./jfdi.sh` launcher script that pins `CLAUDE_CONFIG_DIR=$PWD/.claude-state` so this JFDI project has its own isolated Claude home. The settings.json bootstrap writes also pre-registers the marketplace and auto-enables the plugin, so the per-project Claude home picks up the plugin on first launch.
 
-In a project where `/jfdi-agents:bootstrap` has run, the project's `.claude/settings.json` declares `jfdi-agents:team-lead` as the default agent, so plain `claude` Just Works:
+**Step 4. Verify and launch.**
+
+```
+/exit
+```
+
+Then from your terminal, in the project directory:
 
 ```bash
-cd /path/to/your/jfdi-project
-claude
+./jfdi.sh
 ```
 
-If you want to override (e.g. launch the TeamLead from a directory that hasn't been bootstrap-ed for jfdi-agents), the explicit form still works:
+`./jfdi.sh` exports `CLAUDE_CONFIG_DIR=$PWD/.claude-state` and execs `claude`. Because this is a fresh per-project Claude home, you'll see the marketplace-registration prompt and the plugin-install prompt once on first launch — approve them. After that, every subsequent `./jfdi.sh` is silent.
 
-```bash
-claude --agent jfdi-agents:team-lead
-```
+To continue an existing session: `./jfdi.sh -c` (the launcher passes args through to `claude`).
 
 ### Updating
 
-When the plugin repo gets new commits, pull them into your installed copy:
+When the plugin gets new commits and a marketplace update is published:
 
 ```
-/plugin marketplace update jfdi-agents
+/plugin marketplace update dr-zog
 ```
 
 (Updates the cached marketplace catalog.)
 
 ```
-/plugin update jfdi-agents@jfdi-agents
+/plugin update jfdi-agents@dr-zog
 ```
 
 (Updates the installed plugin.)
 
-Claude Code fetches the new commits, copies them into a new versioned cache directory, and cleans up the old one after seven days.
+Claude Code fetches the new version, copies it into a new versioned cache directory, and cleans up the old one after seven days.
 
 ### Uninstalling
 
 ```
-/plugin uninstall jfdi-agents@jfdi-agents
-/plugin marketplace remove jfdi-agents
+/plugin uninstall jfdi-agents@dr-zog
+/plugin marketplace remove dr-zog
 ```
 
-### Private repo authentication
+### Per-project Claude home
 
-If you're installing from a **private** repo (e.g. a self-hosted GitLab fork), the marketplace URL relies on your existing git credential setup. For an SSH URL like `git@gitlab.example.com:<your-group>/jfdi-agents.git`, if `git clone <url>` works in your shell, `/plugin marketplace add <url>` works in Claude Code — both use the same credential helpers. For the background auto-update that Claude Code runs at session start (which cannot prompt for credentials), you may need to set `GITLAB_TOKEN` (or `GITHUB_TOKEN`, `BITBUCKET_TOKEN`, etc.) in your shell environment. See [the Claude Code docs on private repositories](https://code.claude.com/docs/en/plugin-marketplaces#private-repositories) for the full list.
+The `./jfdi.sh` launcher generated by bootstrap exports `CLAUDE_CONFIG_DIR=$PWD/.claude-state`. The consequence:
 
-### Project-scoped auto-enable (optional)
+- Each JFDI project has its own marketplace registration, plugin cache, credentials, teams directory, and tasks directory — all under `./.claude-state/`.
+- A stalled JFDI team in one project cannot collide with another project's state.
+- Your personal `~/.claude/` (the Claude home you use for non-JFDI work) is left untouched and is **explicitly denied** at the OS-sandbox level by the bootstrap-generated settings.json — JFDI sessions cannot read or write into it.
 
-If you want a downstream project to automatically prompt for the plugin when opened in Claude Code, add this to the project's `.claude/settings.json`:
+The cost: the first launch in each JFDI project asks for plugin install (one-time consent) and `claude auth login` (per-project credentials, since the per-project state dir starts empty). Both are silent on subsequent launches.
 
-```json
-{
-  "extraKnownMarketplaces": {
-    "jfdi-agents": {
-      "source": {
-        "source": "url",
-        "url": "https://github.com/dr-zog/jfdi-agents.git"
-      }
-    }
-  },
-  "enabledPlugins": {
-    "jfdi-agents@jfdi-agents": true
-  }
-}
-```
+`.claude-state/` is added to the project's `.gitignore` by bootstrap, so credentials and runtime state never reach the repo.
 
-Anyone who opens the project and trusts the folder will be prompted to register the marketplace and install the plugin on first run. Useful when a team project depends on the jfdi-agents workflow and you want all collaborators on the same version.
+### Auto-prompt on project open (optional)
 
-## Alternative — `--plugin-dir` for active plugin development
+Bootstrap-generated `.claude/settings.json` already does this — it pre-registers the marketplace under `extraKnownMarketplaces.dr-zog` and pre-enables the plugin under `enabledPlugins["jfdi-agents@dr-zog"]`. Anyone who clones a JFDI-bootstrap-ed project, trusts the folder, and launches via `./jfdi.sh` will be prompted to register the marketplace and install the plugin on first run, then never again.
 
-The install path above is for using the plugin. If you are actively *editing* the plugin itself — tweaking agent bodies, changing skills, iterating on the shared docs — install mode is the wrong fit. Every time you change a file you would have to `/plugin update` to pull it into the cache, and the cache version can drift from the source.
+## Maintainer install — `--plugin-dir` for active plugin development
+
+The install path above is for using the plugin. If you are actively *editing* the plugin itself — tweaking agent bodies, changing skills, iterating on the shared docs — install mode is the wrong fit. Every time you change a file you would have to bump the version, push, wait for the marketplace catalog to update, and `/plugin update` to pull it into the cache.
 
 For active development, stay in dev mode:
 
@@ -130,7 +119,7 @@ Changes to files in the checkout are picked up on `/reload-plugins` without any 
 
 ```bash
 # ~/.bashrc or ~/.zshrc
-jfdi() {
+jfdi-dev() {
   claude --plugin-dir "/home/you/code/jfdi-agents" "$@"
 }
 ```
@@ -138,21 +127,25 @@ jfdi() {
 Then:
 
 ```bash
-jfdi --agent jfdi-agents:team-lead
+jfdi-dev --agent jfdi-agents:team-lead
 ```
+
+(Note: dev-mode invocations are the one place `claude --agent` is still appropriate, because dev mode bypasses the project-level settings.json that would otherwise pick the agent.)
 
 Dev mode and installed mode can coexist. If an installed copy of the plugin is already registered and you also pass `--plugin-dir` pointing at a checkout of the same name, the local `--plugin-dir` copy takes precedence for that one session. This lets you test an in-progress change against a stable install without uninstalling first.
 
 ## Relationship to `.claude/settings.json`
 
-Installation scope is separate from project settings. Your project's `.claude/settings.json` continues to hold project-level settings like `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`; the plugin installation happens in `~/.claude/settings.json` (user scope, default) or wherever you specified with `--scope`. The two do not collide.
+Installation scope is separate from project settings. Your project's `.claude/settings.json` continues to hold project-level settings (default agent, output style, env vars, sandbox, marketplace registration, plugin enable); the plugin installation happens in `<CLAUDE_CONFIG_DIR>/settings.json` (user scope, default) or wherever you specified with `--scope`. The two do not collide.
+
+Under the `./jfdi.sh` launcher, `<CLAUDE_CONFIG_DIR>` is `./.claude-state/` — so the project-scoped `.claude/settings.json` and the per-project user-scoped `./.claude-state/settings.json` both live inside the project, but they serve different purposes. Bootstrap only writes the former; the latter is populated by Claude Code itself when you install the plugin.
 
 ## Which mode should you be in?
 
 | Situation | Mode |
 |---|---|
-| Using the plugin to build a product | **Installed** (the git URL path above). One-time setup; every future session is flagless. |
+| Using the plugin to build a product | **Marketplace install + bootstrap + `./jfdi.sh`**. One-time setup; every future session is flagless. |
 | Editing the plugin's own agent definitions, skills, or docs | **Dev mode** (`--plugin-dir` + shell alias). Fast reload loop, no install dance. |
 | Both at once | Install it *and* use `--plugin-dir` when you're hacking — the dev copy wins for the session that passes the flag, the installed copy wins everywhere else. |
 
-For the typical `jfdi-agents` end-user — the person who installs it, defines a product vision, and runs the TeamLead — the two commands in the recommended section above are the whole story. After that, never think about `--plugin-dir` again.
+For the typical `jfdi-agents` end-user — the person who installs it, defines a product vision, and runs the TeamLead — the four steps in the end-user section above are the whole story. After that, never think about `--plugin-dir` again.

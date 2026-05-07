@@ -30,16 +30,16 @@ cd /path/to/your/project
 claude
 ```
 
-Then inside the session, add the marketplace (substitute your own remote URL for a fork):
+Then inside the session, add the [`dr-zog/ai-marketplace`](https://github.com/dr-zog/ai-marketplace) marketplace:
 
 ```
-/plugin marketplace add https://github.com/dr-zog/jfdi-agents.git
+/plugin marketplace add dr-zog/ai-marketplace
 ```
 
 Then install the plugin:
 
 ```
-/plugin install jfdi-agents@jfdi-agents
+/plugin install jfdi-agents@dr-zog
 ```
 
 When the install runs, Claude Code prompts you to pick a scope: **User**, **Project**, or **Local**. **Recommended: Project** — it writes the plugin entry to `./.claude/settings.json` alongside the project itself, so anyone who clones the repo and trusts the folder gets the same plugin set-up.
@@ -56,9 +56,9 @@ After the install completes, reload plugins so the new skills are visible:
 /jfdi-agents:bootstrap
 ```
 
-This is the plugin's pre-flight skill. It checks git, initialises a repo if needed, writes a comprehensive `.claude/settings.json` (default agent set to `jfdi-agents:team-lead`, output style, agent-teams env vars, bypassPermissions mode, OS-level sandbox restricting reads/writes to the project + `~/.claude` with explicit denies for `~/.aws/`, `~/.ssh/`, `~/.gnupg/`, history files, `.netrc`, marketplace pre-registration, plugin auto-enable), and lays down a deliberately-small directory tree (`vision/`, `docs/`, `docs/demos/`, `.claude/agents/`). Idempotent; safe to re-run. Existing settings are merged not overwritten.
+This is the plugin's pre-flight skill. It checks git, initialises a repo if needed, writes a comprehensive `.claude/settings.json` (default agent set to `jfdi-agents:team-lead`, output style, agent-teams env vars, bypassPermissions mode, OS-level sandbox restricting reads/writes to the project — with explicit denies for `~/.claude/`, `~/.aws/`, `~/.ssh/`, `~/.gnupg/`, history files, `.netrc` — marketplace pre-registration, plugin auto-enable), lays down a deliberately-small directory tree (`vision/`, `docs/`, `docs/demos/`, `.claude/agents/`, `.claude-state/`), and generates a `./jfdi.sh` launcher that pins per-project Claude state. Idempotent; safe to re-run. Existing settings are merged not overwritten.
 
-**Step 3 — Exit this session and run plain `claude`.** Claude Code picks its main-thread agent at session launch, so you need a new session — but you don't need to remember any flags. The settings.json bootstrap just wrote does the work:
+**Step 3 — Exit this session and run `./jfdi.sh`.** Claude Code picks its main-thread agent at session launch, so you need a new session — but you don't need to remember any flags. The launcher and settings.json bootstrap just wrote do the work:
 
 ```
 /exit
@@ -67,10 +67,10 @@ This is the plugin's pre-flight skill. It checks git, initialises a repo if need
 Then from your terminal, still in the same project directory:
 
 ```bash
-claude
+./jfdi.sh
 ```
 
-That's it. No `--agent` flag. No `--dangerously-skip-permissions`. No env-var exports. The settings.json declares the default agent, the permission mode, the marketplace, and the plugin enable.
+That's it. No `--agent` flag. No `--dangerously-skip-permissions`. No env-var exports. The launcher exports `CLAUDE_CONFIG_DIR=$PWD/.claude-state` (per-project Claude home, isolated from your shared `~/.claude`) and execs `claude`; the settings.json declares the default agent, the permission mode, the marketplace, and the plugin enable.
 
 **First launch in a project**: Claude Code prompts you to register the marketplace and install the plugin (the settings.json declared both, but the trust dance still requires your confirmation). Approve those once; subsequent launches in this directory are silent.
 
@@ -88,7 +88,7 @@ For an unattended run — team drives all the way to a green acceptance list wit
 Run in Autonomous JFDI mode. Drive the Vision intake with me (autonomy begins once Vision is captured), then continue through architecture, the walking-skeleton build, and refinement until the acceptance list is fully green. Stop only on a specialist blocker. Remember: Autonomous JFDI means every rule still runs — sequential-skeleton rule, folder-ownership rule, Verifier sign-off between stages. No shortcuts.
 ```
 
-**To continue an existing session**: `claude -c` (still no flags needed — the settings.json applies to continued sessions too).
+**To continue an existing session**: `./jfdi.sh -c` (the launcher passes args through to `claude`; settings.json applies to continued sessions too).
 
 **Prerequisites:**
 
@@ -97,29 +97,28 @@ Run in Autonomous JFDI mode. Drive the Vision intake with me (autonomy begins on
 
 Full install details (updating, uninstalling, dev mode for contributors, private-repo auth) in [`plugins/jfdi-agents/docs/local-install.md`](plugins/jfdi-agents/docs/local-install.md).
 
-## Filesystem isolation — built into the bootstrap-generated settings
+## Two-layer isolation — built into bootstrap
 
-The settings.json bootstrap writes enables Claude Code's OS-level sandbox with reads and writes restricted to the project directory + `~/.claude/` (so the team can manage its own state). Common credential paths are explicitly denied:
+JFDI sessions are confined to the project at two independent levels. Both are set up automatically by `/jfdi-agents:bootstrap`; you don't configure either by hand.
 
+**Layer 1 — OS-level sandbox (settings.json).** The settings.json bootstrap writes enables Claude Code's OS sandbox with reads and writes restricted to the project directory only. Sensitive paths in your home are explicitly denied:
+
+- `~/.claude/**` — your shared Claude Code state lives here, and JFDI sessions have no business reading or writing it.
 - `~/.aws/**`, `~/.ssh/**`, `~/.gnupg/**`
 - `~/.netrc`, `~/.bash_history`, `~/.zsh_history`, `~/.fish_history`
 - `~/.config/git/credentials`
 
-This is the structural defence against the failure mode where Claude tries to be helpful by reading the user's home directory. The team's tool calls cannot leak personal data outside the project tree.
+This is the structural defence against the failure mode where Claude tries to be helpful by reading the user's home directory. The team's **tool calls** cannot leak personal data outside the project tree.
 
-## Optional: per-project isolation via `CLAUDE_CONFIG_DIR`
-
-The settings.json above is sufficient for safe operation. Sandbox handles filesystem isolation; the TeamLead's zombie-recovery routine refuses to `rm -rf` team directories whose names don't match this session's surname.
-
-If you want **even stronger** isolation — per-project teams directory, per-project plugin cache, per-project credentials — set `CLAUDE_CONFIG_DIR` before launching:
+**Layer 2 — per-project Claude home (launcher script).** Claude Code's own state management (where it writes teams, tasks, project metadata, plugins cache, credentials) is governed by the `CLAUDE_CONFIG_DIR` env var, not by settings.json — Claude Code reads its config-dir lookup *before* settings.json is loaded. Bootstrap generates a `./jfdi.sh` launcher that exports `CLAUDE_CONFIG_DIR=$PWD/.claude-state` and execs `claude`; this redirects every byte of Claude Code's runtime state into the project's `.claude-state/` (git-ignored), keeping it off your shared `~/.claude`. Combined with Layer 1's sandbox-deny on `~/.claude/**`, JFDI sessions cannot touch your shared state by either route.
 
 ```bash
-cd /path/to/your/project
-export CLAUDE_CONFIG_DIR="$PWD/.claude-state"
-claude
+./jfdi.sh                # launches with CLAUDE_CONFIG_DIR pinned
+./jfdi.sh -c             # continue last session
+./jfdi.sh -r <id>        # resume specific session
 ```
 
-The cost is per-project `claude auth login` (the scoped dir starts with no credentials). `.claude-state/` is already in `.gitignore` so credentials won't be committed. Recommended only if you're running multiple high-stakes projects on the same machine and want belt-and-suspenders.
+The cost of per-project state is a one-time `claude auth login` per project (the per-project state dir starts with no credentials). The benefit: a stalled JFDI team or a bug in zombie-recovery cannot collide with your other Claude work.
 
 ## The roster
 
@@ -156,11 +155,11 @@ Full definitions in [`plugins/jfdi-agents/docs/terminology.md`](plugins/jfdi-age
 ## How it runs
 
 ```
-1. /plugin marketplace add <this-repo-url>
-2. /plugin install jfdi-agents@jfdi-agents
+1. /plugin marketplace add dr-zog/ai-marketplace
+2. /plugin install jfdi-agents@dr-zog
 3. /jfdi-agents:bootstrap
 4. /exit
-5. claude                                # settings.json picks the agent
+5. ./jfdi.sh                             # launcher pins CLAUDE_CONFIG_DIR, settings.json picks the agent
 6. "Proceed in Checkpointed mode..."
 7. Walk through the Vision intake. Answer questions that appear in the TeamLead session.
 8. After architecture: review the layer list and the acceptance list; approve or redirect.
@@ -175,7 +174,7 @@ The **TeamLead** is the single main-session agent that drives the whole workflow
 
 **Checkpointed mode** (default) pauses for your approval after every load-bearing transition — post-intake, post-architecture, per Build-layer demo, post-skeleton-complete, per Refine-pass demo. **Autonomous JFDI mode** runs straight through without pausing; opt in explicitly when you want it. The mode names are deliberate: Checkpointed means "I'll catch shortcuts"; Autonomous JFDI means "you can't catch them, so don't take any". Every rule (sequential-skeleton, folder-ownership, Verifier sign-off) remains non-negotiable in Autonomous JFDI — the lack of a human checkpoint makes the process rigour *more* important, not less.
 
-**There is only one supported invocation path.** Plain `claude` in a bootstrap-ed project (or `claude --agent jfdi-agents:team-lead` if you want to override the settings.json default) creates the team and drives everything inside it. Per-role main-session launches are **not supported** — the specialists cannot function outside the TeamLead-led team because `AskUserQuestion` is disallowed and their prompts assume the relay.
+**There is only one supported invocation path.** `./jfdi.sh` in a bootstrap-ed project creates the team and drives everything inside it (the launcher exports `CLAUDE_CONFIG_DIR` and execs `claude`; the settings.json picks the default agent). Per-role main-session launches are **not supported** — the specialists cannot function outside the TeamLead-led team because `AskUserQuestion` is disallowed and their prompts assume the relay.
 
 ## The minted developers
 
@@ -200,12 +199,10 @@ You can tweak these files by hand if the Architect's defaults don't suit you —
 
 ## Repository layout
 
-This repo is a **one-plugin Claude Code marketplace**. The marketplace catalog lives at the repo root (`.claude-plugin/marketplace.json`), and the plugin itself lives one level down at `plugins/jfdi-agents/`.
+This repo holds the plugin source. The plugin is **published** (via CI's `publish-to-github` stage) to [`github.com/dr-zog/jfdi-agents`](https://github.com/dr-zog/jfdi-agents) and **catalogued** (alongside other plugins) at [`github.com/dr-zog/ai-marketplace`](https://github.com/dr-zog/ai-marketplace). End users install via the marketplace; this repo is the source of truth for plugin development.
 
 ```
-jfdi-agents/                             # repo root = marketplace root
-├── .claude-plugin/
-│   └── marketplace.json                 # marketplace catalog (one entry)
+jfdi-agents/                             # repo root (plugin source)
 ├── plugins/
 │   └── jfdi-agents/                     # plugin root
 │       ├── .claude-plugin/
@@ -233,7 +230,7 @@ jfdi-agents/                             # repo root = marketplace root
 │           ├── team-lead-playbook.md       # team-management mechanics (lead satellite of process.md)
 │           ├── solo-agents.md              # solo-mode reference (solo satellite of process.md)
 │           ├── system-prompt-composition.md # output-style rationale
-│           └── local-install.md            # install via git URL, dev mode, etc.
+│           └── local-install.md            # install via marketplace, dev mode, etc.
 ├── evals/                                  # end-to-end evals against the plugin
 ├── tools/                                  # diagnostic tools (team-inspect Go binary)
 ├── CLAUDE.md                               # repo-level instructions for Claude Code
@@ -242,7 +239,7 @@ jfdi-agents/                             # repo root = marketplace root
 └── README.md                               # this file
 ```
 
-**The `${CLAUDE_PLUGIN_ROOT}` substitution in agent bodies** always resolves to the plugin's *installed* root, which is either `<cache-dir>/jfdi-agents-jfdi-agents/<version>/` (installed mode) or `<your-checkout>/plugins/jfdi-agents/` (dev mode). Either way, `${CLAUDE_PLUGIN_ROOT}/docs/terminology.md` lands at the correct file inside the plugin.
+**The `${CLAUDE_PLUGIN_ROOT}` substitution in agent bodies** always resolves to the plugin's *installed* root, which is either `<cache-dir>/dr-zog-jfdi-agents/<version>/` (installed via marketplace) or `<your-checkout>/plugins/jfdi-agents/` (dev mode). Either way, `${CLAUDE_PLUGIN_ROOT}/docs/terminology.md` lands at the correct file inside the plugin.
 
 ## Contributing
 
