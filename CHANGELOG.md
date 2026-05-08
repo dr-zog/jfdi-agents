@@ -8,6 +8,12 @@ Entries from `0.4.3` onward are generated automatically by the `release-on-merge
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-05-08
+
+### Fixed
+
+- docs: clarify dr-zog/ai-marketplace tracks latest, no version pinning (!11)
+
 ## [0.7.0] - 2026-05-07
 
 ### Added

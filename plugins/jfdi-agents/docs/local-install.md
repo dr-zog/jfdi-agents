@@ -14,6 +14,8 @@ For end-users running the plugin to build a product, mode 2 is correct — insta
 
 The plugin is published to the [`dr-zog/ai-marketplace`](https://github.com/dr-zog/ai-marketplace) marketplace on GitHub. That marketplace's `marketplace.json` declares `jfdi-agents` (alongside any other plugins the marketplace publishes) and points at the [`dr-zog/jfdi-agents`](https://github.com/dr-zog/jfdi-agents) source repo.
 
+**The marketplace tracks `main`, no version pinning.** The `jfdi-agents` entry in `dr-zog/ai-marketplace`'s catalog uses a `git-subdir` source pointing at `dr-zog/jfdi-agents` with **no `ref` field**, so Claude Code resolves it against `HEAD` of the default branch (`main`). Both the initial `/plugin install` and every subsequent `/plugin update` always pull the latest published release. There is no specific version to opt in to; the latest is whatever's been most recently published by the GitLab `publish-to-github` CI stage. If you need to roll back to a specific past version, you have to `--plugin-dir` against a local checkout pinned to that tag — there is no version selector in the marketplace install path.
+
 **Step 1. Add the marketplace.**
 
 From any running Claude Code session:
@@ -66,7 +68,7 @@ To continue an existing session: `./jfdi.sh -c` (the launcher passes args throug
 
 ### Updating
 
-When the plugin gets new commits and a marketplace update is published:
+The marketplace tracks `main` of the published mirror without a `ref` pin (see the note at the top of this section), so updates always pull the latest release. The two-step is:
 
 ```
 /plugin marketplace update dr-zog
@@ -78,9 +80,9 @@ When the plugin gets new commits and a marketplace update is published:
 /plugin update jfdi-agents@dr-zog
 ```
 
-(Updates the installed plugin.)
+(Updates the installed plugin to whatever the catalog now resolves to — i.e. latest published.)
 
-Claude Code fetches the new version, copies it into a new versioned cache directory, and cleans up the old one after seven days.
+Claude Code fetches the new version, copies it into a new versioned cache directory at `<CLAUDE_CONFIG_DIR>/plugins/cache/dr-zog-jfdi-agents/<version>/`, and cleans up the old one after seven days. There is no "stay on v0.7.x" mode; if you need version stability for a project, use dev mode (`--plugin-dir` against a checkout you control) instead of the marketplace install.
 
 ### Uninstalling
 

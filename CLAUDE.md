@@ -59,6 +59,8 @@ Skills for authoring new agents against these rules:
 - **`CLAUDE.md`** — this file.
 
 > **Note on marketplace migration (v0.6.x → v0.7.x).** Previously this repo also held a `.claude-plugin/marketplace.json` catalog so the repo URL could be added directly as a marketplace. That file has been removed; the marketplace catalog now lives in the separate [`dr-zog/ai-marketplace`](https://github.com/dr-zog/ai-marketplace) repo, alongside other plugins. The `publish-to-github` CI stage continues to publish plugin source to `dr-zog/jfdi-agents`, which is what the `dr-zog/ai-marketplace` catalog references.
+>
+> **The marketplace does not pin a version.** `dr-zog/ai-marketplace`'s catalog entry for `jfdi-agents` uses a `git-subdir` source pointing at `dr-zog/jfdi-agents` with no `ref` field, so Claude Code always resolves it against `HEAD` of the default branch (`main`). Every `/plugin install` and `/plugin update` pulls the latest published release. **Plugin maintainers: do not add a `ref` to the catalog entry on version bumps** — the bump is supposed to flow through to all installed users. If we ever need a stable LTS branch, that is a deliberate design change, not the default.
 
 ### Plugin (`plugins/jfdi-agents/`)
 

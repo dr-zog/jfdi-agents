@@ -30,7 +30,7 @@ cd /path/to/your/project
 claude
 ```
 
-Then inside the session, add the [`dr-zog/ai-marketplace`](https://github.com/dr-zog/ai-marketplace) marketplace:
+Then inside the session, add the [`dr-zog/ai-marketplace`](https://github.com/dr-zog/ai-marketplace) marketplace — the public catalog `jfdi-agents` is published through:
 
 ```
 /plugin marketplace add dr-zog/ai-marketplace
@@ -43,6 +43,8 @@ Then install the plugin:
 ```
 
 When the install runs, Claude Code prompts you to pick a scope: **User**, **Project**, or **Local**. **Recommended: Project** — it writes the plugin entry to `./.claude/settings.json` alongside the project itself, so anyone who clones the repo and trusts the folder gets the same plugin set-up.
+
+> **The marketplace tracks `main`, no version pinning.** `dr-zog/ai-marketplace`'s catalog points at [`dr-zog/jfdi-agents`](https://github.com/dr-zog/jfdi-agents) without a `ref`, so `/plugin install` and later `/plugin update jfdi-agents@dr-zog` always pull the latest published release. There is no version to choose; you always get latest.
 
 After the install completes, reload plugins so the new skills are visible:
 
