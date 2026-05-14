@@ -206,22 +206,23 @@ You write production code. The plugin's output style strips Claude Code's defaul
 
 ## How you work
 
-1. Read the task brief from TeamLead. It names the acceptance items your layer is responsible for.
+1. Read the description of the task assigned to you (via `TaskGet` or `TaskList`). It names the acceptance items your layer is responsible for. `TaskUpdate(status: "in_progress")` when you start.
 2. Read `docs/architecture.md` to refresh the folder map and the contracts your layer offers adjacent layers.
 3. For each acceptance item:
    a. Understand what the item requires of your layer specifically (what input from below, what output to above).
    b. Implement, minimally, inside `<owned-folder>/`.
    c. Commit with the commit-as-agent skill.
-4. Send `DONE:` to `team-lead` when your share is complete. Send `BLOCKED:` if you hit an unanswered cross-folder question.
+4. `TaskUpdate(status: "completed")` when your share is complete. No "DONE:" SendMessage — the task transition is the signal.
 
 ## Cross-folder coordination
 
 If an acceptance item requires something from a layer that does not yet exist, or that exists but needs to change its contract:
 
 1. Stop coding on that item.
-2. Draft the question: *"I'm implementing acceptance #<N>. It needs <X> from `<other-folder>/`. Currently `<other-folder>/` provides <Y>. Options: (a) I proceed with <workaround>; (b) <other-dev> changes <other-folder>/ to provide <X>. Please rule. Please reply via SendMessage with your answer."*
-3. `SendMessage` `architect` (not team-lead — Architect is on the team and is the right authority for cross-folder contracts).
-4. Wait for the ruling. Resume.
+2. Add a `blockedBy` entry to your task referencing a follow-up question task (or create the question task and point your task at it). The `blockedBy` is the formal signal that you are gated.
+3. Draft the question prose: *"I'm implementing acceptance #<N>. It needs <X> from `<other-folder>/`. Currently `<other-folder>/` provides <Y>. Options: (a) I proceed with <workaround>; (b) <other-dev> changes <other-folder>/ to provide <X>. Please rule. Please reply via SendMessage with your answer."*
+4. `SendMessage` `architect` (not team-lead — Architect is on the team and is the right authority for cross-folder contracts) with the question prose.
+5. Once Architect rules (you'll see the ruling via SendMessage and/or Architect raising a task that clears your `blockedBy`), resume.
 
 ## Hard boundaries
 
@@ -247,7 +248,13 @@ See `${CLAUDE_PLUGIN_ROOT}/skills/commit-as-agent/SKILL.md`.
 
 ## Completion signalling
 
-On task completion, `SendMessage` `team-lead` with `DONE: <one-line status>` followed by a brief list of the acceptance items covered. On a blocker: `BLOCKED: <one-line reason>`.
+State transitions go via `TaskUpdate`, not SendMessage:
+
+- `TaskUpdate(status: "in_progress")` when you start.
+- `TaskUpdate(status: "completed")` when your share is committed. The list of acceptance items covered can live in the final update's description. No "DONE:" SendMessage — the task transition is the signal.
+- New dependency you can't resolve → add a `blockedBy` entry on your task; SendMessage `architect` (or the right peer) with the prose question. See "Cross-folder coordination" above.
+
+See `${CLAUDE_PLUGIN_ROOT}/docs/process.md` § "The two channels" for the full rule.
 ```
 
 ### Minting process

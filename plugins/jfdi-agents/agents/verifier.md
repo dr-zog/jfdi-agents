@@ -95,14 +95,13 @@ Your teammate name carries the phase suffix — `verifier-skeleton-data`, `verif
 
 ## Completion signalling
 
-On task completion, `SendMessage` `team-lead`:
+State transitions go via `TaskUpdate`, not SendMessage:
 
-```
-DONE: <one-line status, e.g. "demo written — 7 PASS, 2 NOT-YET, 0 FAIL, Ready-to-advance: Yes">
-Artefact: docs/demos/<date>-<slug>.md
-```
+- `TaskUpdate(status: "in_progress")` when you start.
+- `TaskUpdate(status: "completed")` when the demo is committed. The one-line status (*"7 PASS, 2 NOT-YET, 0 FAIL, Ready-to-advance: Yes"*) and the artefact path can live in the final `TaskUpdate`'s description for the TeamLead's status block. No "DONE:" SendMessage is needed and none should be sent.
+- If you can't run the system (e.g. missing startup command, unresolved environment issue), add a `blockedBy` entry to your task referencing a follow-up task, or create a CRITICAL finding in the demo (a Ready-to-advance: Not yet demo is a legitimate completed task — your job is the audit, not making the system work).
 
-On a blocker: `BLOCKED: <reason>`.
+See `${CLAUDE_PLUGIN_ROOT}/docs/process.md` § "The two channels".
 
 ## Coding permission — limited
 

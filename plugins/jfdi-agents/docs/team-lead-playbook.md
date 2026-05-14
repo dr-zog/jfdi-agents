@@ -40,7 +40,56 @@ Whatever the teammate name is, that's also the author slug: `<teammate-name>@jfd
 
 One branch per stage. RepoSteward creates at stage start, merges at stage close.
 
-## 2. Start-of-session playbook
+## 2. The TeamLead's two channels — Tasks for state, SendMessage for nudges
+
+This split is the single most important operational rule for the TeamLead. It is also covered in `${CLAUDE_PLUGIN_ROOT}/docs/process.md` § "The two channels"; this section restates it from the lead's perspective.
+
+**Tasks are the work-and-state channel.** All work you assign goes into `TaskCreate` with `owner`, `blockedBy`, `status: pending`, and a self-contained description. All teammate progress comes back to you via `TaskUpdate` — `in_progress` when an agent picks up, `completed` when it finishes, new `blockedBy` entries when it hits a dependency. You read this state via the periodic-poll loop (§ "The periodic-poll loop"). The Task channel is the source of truth.
+
+**SendMessage is the nudge-and-out-of-band-Q&A channel.** You use it for:
+
+- **Stall-check nudges** — when the periodic-poll loop's 5-minute threshold fires, SendMessage the owner of the stale `in_progress` task asking what is blocking them. One sentence. No rich brief.
+- **Relaying questions** — a teammate SendMessages you with a question for the human; you `AskUserQuestion` and SendMessage the answer back.
+- **Operational clarifications** — *"backend-dev: I noticed your task description says X but the architecture doc says Y, can you clarify?"*
+
+**You do NOT use SendMessage to:**
+
+- Tell a teammate to start work. (The Task is the assignment. If you've assigned an unblocked task to someone, they will pick it up.)
+- Tell a teammate a task has been unblocked. (Clear the `blockedBy` entry via `TaskUpdate` on the downstream task; the owner will pick it up.)
+- Deliver a work brief. (Put the brief in the Task description.)
+- Announce that you are starting a stage, closing a stage, or any other lifecycle event. (Status blocks go to the human, not to teammates.)
+
+### Spawn-prompt template
+
+When you spawn a teammate via `Agent`, the prompt you pass is **orientation only**. Role + team name + a single grounding sentence. **Never** a work brief.
+
+```
+Role: <role-name> (canonical role: ProductOwner / Architect / Developer / Verifier / RepoSteward).
+Team: <team-name>.
+You will be assigned tasks via TaskCreate. Read your owned tasks, do the work,
+TaskUpdate as you progress. Refer to your role definition for the rest.
+```
+
+That is it. No checklist, no file paths, no commit format, no completion template. The teammate's standing role definition covers the discipline; the task description covers the specifics.
+
+### Wake-signal guidance
+
+You rarely need to send any SendMessage to wake a teammate. Teammates pick up assigned-unblocked tasks from `TaskList` polling naturally — that is the harness's design. If you find yourself wanting to send "task #N is now unblocked, please proceed", **don't**. Clear the `blockedBy` entry via `TaskUpdate`; that is the wake-up signal.
+
+The one legitimate wake-style SendMessage is the stall-check nudge: *"team-lead → backend-dev: task #7 has been in_progress for 5 minutes with no updates. What's blocking you?"* One sentence. No work brief.
+
+## 3. The periodic-poll loop
+
+Authoritative version lives in `${CLAUDE_PLUGIN_ROOT}/agents/team-lead.md` § "The periodic-poll loop". Summary for cross-reference:
+
+- **Mechanism: `ScheduleWakeup`** (the harness's `/loop`-dynamic interface). Each tick the TeamLead does its `TaskList` + reactions, then before yielding the turn calls `ScheduleWakeup(delaySeconds: 60)` so the harness re-enters the lead for the next tick. **Not `Bash(sleep)`** — that holds one turn open across an entire stage, balloons context, and is un-interruptible.
+- Every ~60 seconds, `TaskList` the team's task state.
+- React to state changes — clear `blockedBy` entries when blockers complete, spawn follow-up specialists when their cue task completes, close the stage when all tasks are `completed`.
+- Five consecutive ticks (~5 minutes) with no state change AND a task is `in_progress` ⇒ stall threshold fires ⇒ SendMessage the owner asking what is blocking them. One specific teammate, one sentence.
+- The loop terminates when the stage is complete (no `ScheduleWakeup` call on the final tick — the turn ends naturally and the lead moves on to stage close / human checkpoint / next-stage setup).
+- The existing `${CLAUDE_PLUGIN_ROOT}/scripts/stall-detector.sh` is a complementary external observer, not the primary pulse.
+
+## 4. Start-of-session playbook
 
 When the TeamLead main session launches, execute these steps in order.
 
@@ -61,9 +110,9 @@ When the TeamLead main session launches, execute these steps in order.
    | Acceptance list fully green | Stop — project complete |
 
 4. **Ask the human to confirm.** Via `AskUserQuestion`, confirm (a) the stage you've diagnosed is correct, (b) they want to proceed in Checkpointed or Autonomous JFDI mode. On confirmation, call `TeamCreate`.
-5. **Spawn the core teammates for the stage.** See § 3 below.
+5. **Spawn the core teammates for the stage.** See § 5 below.
 
-## 3. Per-stage spawn playbook
+## 5. Per-stage spawn playbook
 
 ### 3.1 Stage 1 — Intake
 
@@ -73,11 +122,12 @@ Spawn:
 - `product-owner` (the interactive interview)
 - `repo-steward`
 
-First tasks:
-- RepoSteward: *"Open branch `feature/vision` from `main`."*
-- ProductOwner: *"Run the Vision intake interview. Ask one question at a time via SendMessage to me; I will relay to the human via AskUserQuestion. Produce the five files in `vision/` described in the roster. Do not write `vision/acceptance.md` yet — that happens in Stage 2."*
+First-task descriptions (paste these into `TaskCreate.description` — spawn prompts stay role-orientation-only per § 2):
 
-At stage close: ProductOwner commits; TeamLead asks RepoSteward to merge.
+- **RepoSteward** — owner: `repo-steward`, blockedBy: none. Description: *"Open branch `feature/vision` from `main`. Mark this task `completed` once the branch is checked out."*
+- **ProductOwner** — owner: `product-owner`, blockedBy: `[repo-steward's task above]`. Description: *"Run the Vision intake interview. Ask one question at a time via SendMessage to team-lead; team-lead will relay to the human via AskUserQuestion. Produce the five files in `vision/` described in the roster. Do not write `vision/acceptance.md` yet — that happens in Stage 2. Mark this task `completed` once the five files are committed."*
+
+At stage close, the poll loop notices both tasks complete; TeamLead opens a final close-branch task for RepoSteward and proceeds.
 
 ### 3.2 Stage 2 — Architecture & team design
 
@@ -88,10 +138,11 @@ Spawn:
 - `product-owner` (still around — co-authors the acceptance list)
 - `repo-steward`
 
-First tasks:
-- RepoSteward: *"Open branch `feature/architecture` from `main`."*
-- Architect: *"Read `vision/`. Author `docs/architecture.md` with the four required sections (Layers, Folder map, Developer roster, Technology stack). Seed `docs/decisions.md` with initial pinning calls. Mint one `.claude/agents/<layer>-dev.md` per layer using the `write-agent` skill. Co-author `vision/acceptance.md` with product-owner."*
-- ProductOwner: *"Co-author `vision/acceptance.md` with architect. Ask me (team-lead) to relay to the human for any scope questions."*
+First-task descriptions:
+
+- **RepoSteward** — owner: `repo-steward`, blockedBy: none. Description: *"Open branch `feature/architecture` from `main`. Mark this task `completed` once the branch is checked out."*
+- **Architect** — owner: `architect`, blockedBy: `[repo-steward's task]`. Description: *"Read `vision/`. Author `docs/architecture.md` with the four required sections (Layers, Folder map, Developer roster, Technology stack). Seed `docs/decisions.md` with initial pinning calls. Mint one `.claude/agents/<layer>-dev.md` per layer using the `write-agent` skill. Coordinate with product-owner via SendMessage to co-author `vision/acceptance.md`. Mark this task `completed` once all four artefacts are committed."*
+- **ProductOwner** — owner: `product-owner`, blockedBy: `[repo-steward's task]`. Description: *"Co-author `vision/acceptance.md` with architect — architect will SendMessage you to open the co-authoring conversation. Relay any human-scope questions to team-lead. Mark this task `completed` once `vision/acceptance.md` is committed."*
 
 Before closing the stage: TeamLead runs a sanity check:
 - `.claude/agents/*-dev.md` parseable as YAML frontmatter + body
@@ -114,21 +165,22 @@ Spawn:
 - `<layer>-dev-skeleton` (the minted developer for this layer)
 - `repo-steward`
 
-Plus, when the developer sends `DONE:`:
-- `verifier-skeleton-<layer>`
+Verifier (`verifier-skeleton-<layer>`) is spawned later — when the poll loop notices the developer's task transition to `completed` (and architect's approval task is also `completed`), the lead spawns Verifier and opens its task.
 
-First tasks:
-- RepoSteward: *"Open branch `feature/skeleton-<layer>` from `main`."*
-- Architect: *"Guide `<layer>-dev-skeleton` through the thinnest `<layer>` slice that supports the acceptance list. Be available for SendMessage questions. When the developer sends DONE, review the diff and either approve or request changes."*
-- `<layer>-dev-skeleton`: *"Build the thinnest possible `<layer>` slice. Stub everything not yet needed. Commit incrementally. Send DONE when you believe the slice is complete; send BLOCKED if you hit an unanswered cross-folder question."*
+First-task descriptions:
 
-After DONE + architect approval:
-- `verifier-skeleton-<layer>`: *"Run whatever acceptance items are demonstrable at this slice. Write `docs/demos/<date>-skeleton-<layer>.md`. Ready-to-advance: Yes if the slice is coherent and the items you could check pass; Not yet if a CRITICAL finding blocks."*
+- **RepoSteward** — owner: `repo-steward`, blockedBy: none. Description: *"Open branch `feature/skeleton-<layer>` from `main`. Mark this task `completed` once checked out."*
+- **`<layer>-dev-skeleton`** — owner: `<layer>-dev-skeleton`, blockedBy: `[repo-steward's task]`. Description: *"Build the thinnest possible `<layer>` slice that supports the acceptance items touching your folder. Stub everything not yet needed. Commit incrementally. If you hit a cross-folder question you can't answer from `docs/architecture.md`, raise a `blockedBy` on this task referencing a follow-up question task and SendMessage architect with the question. Mark this task `completed` once your slice is in."*
+- **Architect** — owner: `architect`, blockedBy: none (the architect is on-call, not gated). Description: *"Be available for cross-folder questions from `<layer>-dev-skeleton` via SendMessage. When the developer's task transitions to `completed`, review the diff and either approve (a follow-up task you raise + mark `completed`) or request changes (a follow-up `FIX:` task you assign to the developer). Mark this task `completed` once the layer is approved."*
 
-On Not yet: route the CRITICAL back to the developer; re-run Verifier after the fix. On Yes: RepoSteward merges. Advance to the next layer.
+After the developer's task and Architect's approval task both transition to `completed`, the poll loop spawns Verifier and opens:
 
-**When the last layer lands**, run one more Verifier pass with the **full acceptance list**:
-- `verifier-skeleton-complete`: *"Run the full acceptance list. Write `docs/demos/<date>-skeleton-complete.md`."*
+- **`verifier-skeleton-<layer>`** — owner: `verifier-skeleton-<layer>`, blockedBy: none. Description: *"Run whatever acceptance items are demonstrable at this slice. Write `docs/demos/<date>-skeleton-<layer>.md`. Ready-to-advance: Yes if the slice is coherent and the items you could check pass; Not yet if a CRITICAL finding blocks. Mark this task `completed` once the demo is committed."*
+
+On Not yet: the lead raises a FIX task assigned to the developer (with `blockedBy: [original developer task]` if the developer needs the prior context); re-runs Verifier after the fix. On Yes: lead opens the close-branch task for RepoSteward. Advance to the next layer.
+
+**When the last layer lands**, the lead opens one more Verifier task with the **full acceptance list**:
+- **`verifier-skeleton-complete`** — Description: *"Run the full acceptance list. Write `docs/demos/<date>-skeleton-complete.md`. Mark `completed` once committed."*
 
 That demo's Ready-to-advance gates Stage 4.
 
@@ -143,20 +195,20 @@ Spawn (in one message, so they run concurrently):
 - One `<layer>-dev-refine-<N>` **per folder being touched in this pass**
 - `repo-steward`
 
-Plus, when all developers send `DONE:`:
-- `verifier-refine-<N>`
+Verifier (`verifier-refine-<N>`) is spawned later — when the poll loop sees every developer task `completed`, the lead spawns Verifier and opens its task.
 
-First tasks (use one `TaskCreate` call, multiple tasks):
-- RepoSteward: *"Open branch `feature/refine-<N>` from `main`."*
-- Each `<layer>-dev-refine-<N>`: *"Implement acceptance items <list>. Stay in your folder. Commit incrementally. Send DONE when you believe your share of the pass is complete."*
-- Architect: *"Be available. Cross-folder decisions route through you."*
+First-task descriptions (one `TaskCreate` call, multiple tasks):
 
-After all developers DONE:
-- `verifier-refine-<N>`: *"Run the full acceptance list. Write `docs/demos/<date>-refine-<N>.md`."*
+- **RepoSteward** — owner: `repo-steward`, blockedBy: none. Description: *"Open branch `feature/refine-<N>` from `main`. Mark `completed` once checked out."*
+- **Each `<layer>-dev-refine-<N>`** — owner: that developer, blockedBy: `[repo-steward's task]`. Description: *"Implement acceptance items <list>. Stay in your folder. Commit incrementally. For cross-folder coordination, SendMessage architect and raise a `blockedBy` on this task pointing at the question. Mark `completed` once your share is in."*
+- **Architect** — owner: `architect`, blockedBy: none. Description: *"Be available for cross-folder questions from developers via SendMessage. When all developer tasks transition to `completed`, mark this task `completed`."*
+
+After every developer task is `completed`:
+- **`verifier-refine-<N>`** — owner: that verifier, blockedBy: none. Description: *"Run the full acceptance list. Write `docs/demos/<date>-refine-<N>.md`. Mark `completed` once committed."*
 
 On Not yet: route CRITICALs to the relevant developers; re-run Verifier. On Yes: RepoSteward merges. Increment N and loop.
 
-## 4. Tool-resolution rules for teammate spawning
+## 6. Tool-resolution rules for teammate spawning
 
 When the TeamLead calls `Agent` to add a teammate, it specifies the subagent_type (the role), the teammate name, and optionally overrides for `tools`/`disallowed-tools`/`model`. Key rules:
 
@@ -166,35 +218,33 @@ When the TeamLead calls `Agent` to add a teammate, it specifies the subagent_typ
 4. **Plugin-shipped agents load from `<CLAUDE_CONFIG_DIR>/plugins/cache/dr-zog-jfdi-agents/<version>/`** — under the bootstrap-generated `./jfdi.sh` launcher this resolves to `./.claude-state/plugins/cache/dr-zog-jfdi-agents/<version>/`, not the source tree. Frontmatter edits take effect on live installs only after a version bump + `/plugin update` (or a dev-mode install). This does NOT apply to the developer agents the Architect mints into `.claude/agents/` — those are project-scoped and live.
 5. **The Architect-minted developers are project-scoped subagents.** They live in `.claude/agents/` in the downstream repo. They are addressable as teammates by the TeamLead. They do not benefit from plugin caching; edits take effect on the next spawn.
 
-## 5. Aliveness & stall detection
+## 7. Aliveness & stall detection
 
-A teammate stall — the teammate silently stops responding, having never sent `DONE:` or `BLOCKED:` — is the worst failure mode. The TeamLead does not ping idle teammates (harness says that's normal), but can detect a stall through filesystem signals.
+The primary stall-detection mechanism is the periodic-poll loop's own five-tick rule (§ 3): if `TaskList` shows no state change for ~5 minutes while a task is `in_progress` with empty `blockedBy`, the lead sends one nudging SendMessage to that task's owner. Reset the no-change counter once you act.
 
 ### 5.1 Normal idle
 
-A teammate that has sent a `DONE:` or `BLOCKED:` via SendMessage is finished. The TeamLead's next move is to advance to the next task.
+A teammate whose task is `completed` is finished. The TeamLead's poll loop notices on the next tick and reacts.
 
-A teammate that has not yet sent a response is either (a) still working, or (b) idle between conversation turns. The harness says idle between turns is normal. Do not ping.
+A teammate whose task is `in_progress` is either (a) still working or (b) idle between turns. The harness says idle between turns is normal. Do not ping unless the five-tick threshold has fired.
 
-### 5.2 The stall-detector script
+A teammate whose task is `pending` with empty `blockedBy` and an `owner` set is supposed to be picking the task up via `TaskList` polling. If it hasn't transitioned to `in_progress` within a couple of poll-loop ticks, the same five-tick stall rule applies.
 
-`${CLAUDE_PLUGIN_ROOT}/scripts/stall-detector.sh` watches the team's filesystem-state directory and reports teammates that have stopped producing activity without completion. TeamLead launches it in the background at team creation:
+### 5.2 The stall-detector script (complementary observer)
+
+`${CLAUDE_PLUGIN_ROOT}/scripts/stall-detector.sh` watches the team's filesystem-state directory and reports teammates that have stopped producing activity. The TeamLead may launch it in the background at team creation:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/stall-detector.sh" "<team-name>" &
 ```
 
-When it detects a likely stall, it writes to a well-known location the TeamLead polls via Read. On stall detection, TeamLead:
-
-1. Reads the stall report.
-2. SendMessages the stalled teammate with a narrow prompt: *"Status update requested. What are you currently doing? Are you blocked?"*
-3. Waits one more turn. If still silent, surfaces the stall to the human.
+Treat its `STALL_DETECTED` lines as a **secondary corroborating signal** alongside the poll loop's own stall detection — not as the primary trigger. If the script fires before the loop's five-tick threshold, that's useful early warning: read the report, but stay with the loop's response (one nudge to the owner, escalate to human only if the loop's subsequent ticks confirm continued silence).
 
 ### 5.3 The team-inspect binary
 
 `${CLAUDE_PLUGIN_ROOT}/bin/team-inspect` is a Go binary that reads the Claude Code state directories and produces a structured snapshot of every team, task, and inbox. The TeamLead invokes it when debugging: *"what state is everyone in right now?"* See `tools/team-inspect/README.md` in the repo for usage.
 
-## 6. Status block format
+## 8. Status block format
 
 Every stage transition, the TeamLead prints a short block to the human. Format:
 
@@ -211,7 +261,7 @@ Next action: <what happens now or what's awaiting>
 
 A human returning after a break should be able to read three blocks and know exactly what's going on.
 
-## 7. Checkpoint decisions
+## 9. Checkpoint decisions
 
 **Checkpointed mode (default).** At every load-bearing transition, the TeamLead shows the status block and asks via `AskUserQuestion`: *"Proceed to <next stage>?"* — with choices *Yes*, *Stop here*, *Redirect (free-text)*. The load-bearing transitions are:
 
@@ -223,7 +273,7 @@ A human returning after a break should be able to read three blocks and know exa
 
 **Autonomous JFDI.** Same transitions, but no `AskUserQuestion`. The TeamLead proceeds automatically unless Verifier returns Ready-to-advance: Not yet (which routes to a fix loop, never silently pushes past). The human can interrupt at any time.
 
-## 8. Failure recovery playbook
+## 10. Failure recovery playbook
 
 ### 8.1 A minted developer agent is malformed
 
@@ -266,7 +316,7 @@ Symptom: a team directory exists under `$CLAUDE_CONFIG_DIR/teams/<name>/` (or `~
 
 **Never improvise the `rm`.** A wildcard, a guessed name, or a "clean everything" sweep is always wrong. One verified team name per recovery.
 
-## 9. Disallowed behaviours
+## 11. Disallowed behaviours
 
 These behaviours deadlocked earlier eval runs and are explicitly forbidden:
 
@@ -274,5 +324,7 @@ These behaviours deadlocked earlier eval runs and are explicitly forbidden:
 - **Silently tolerating cross-folder writes.** Escalate to Architect.
 - **Proceeding past a Not-yet demo.** The gate is hard.
 - **Editing content files yourself.** The TeamLead is read-only. Route writes to the right specialist.
-- **Pinging an idle teammate.** Idle between turns is normal per harness docs.
+- **Pinging an idle teammate.** Idle between turns is normal per harness docs. Only nudge when the poll loop's five-tick stall threshold has fired.
+- **Sending work briefs or state transitions via SendMessage.** Work briefs go in `TaskCreate.description`; state transitions go via `TaskUpdate`. SendMessage is for nudges and out-of-band Q&A only (see § 2).
+- **Spawn prompts that contain a work brief.** Spawn = role orientation only (see § 2's spawn-prompt template). All actionable content goes in the task description.
 - **Sending `SendMessage({to: "TeamLead", ...})` from a teammate.** The lead's addressable name is `team-lead`, lowercase kebab-case. Using the role label (`TeamLead`) silently dead-letters.

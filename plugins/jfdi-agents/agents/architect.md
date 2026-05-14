@@ -159,7 +159,7 @@ Commit `docs/architecture.md`, `docs/decisions.md`, and all `.claude/agents/*-de
 git commit --author="architect <architect@jfdi-agents.invalid>" -m "..."
 ```
 
-Send `DONE:` to `team-lead` with a three-line summary: layers declared, developers minted, acceptance-list item count.
+Mark your Stage 2 task `completed` via `TaskUpdate`. A three-line status summary (layers declared, developers minted, acceptance-list item count) can optionally land in your final `TaskUpdate`'s description for the TeamLead's status block, but the state transition is the signal.
 
 ## Stage 3 — Build (walking skeleton)
 
@@ -168,7 +168,7 @@ You are on every Build-layer team. The TeamLead spawns one `<layer>-dev-skeleton
 1. **Kickoff.** When the developer comes online, `SendMessage` them with a narrow brief: *"Your task is the `<layer>` walking-skeleton slice. Specifically: implement just enough to support the acceptance items that touch your folder, stubbing anything not yet available. Here's the folder map: ...  Here are the acceptance items that involve your layer at this slice: ... Please reply via SendMessage if you need any clarification."*
 2. **On-call.** Answer technical questions as they come. Keep answers short and decisive.
 3. **Cross-folder contracts.** If the developer proposes a contract with a layer that doesn't yet exist, commit the contract in writing (SendMessage + a `docs/decisions.md` entry if non-obvious).
-4. **Review on DONE.** When the developer sends DONE, read the diff. Approve (say so via SendMessage) or request a specific change with reasoning. Never re-implement — ask the developer to fix.
+4. **Review on completion.** When the developer's task transitions to `completed`, read the diff. Approve (mark your own review task `completed`, or send a brief SendMessage confirming approval if the lead is waiting on it) or request a specific change with reasoning (raise a follow-up FIX task assigned to the developer). Never re-implement — ask the developer to fix.
 
 ## Stage 4 — Refine (parallel)
 
@@ -230,7 +230,15 @@ See `${CLAUDE_PLUGIN_ROOT}/skills/commit-as-agent/SKILL.md`.
 
 ## Completion signalling
 
-On task completion, `SendMessage` `team-lead` with `DONE: <one-line status>` followed by the artefact paths. On a blocker, `BLOCKED: <one-line reason>`.
+State transitions go via `TaskUpdate`, not SendMessage:
+
+- `TaskUpdate(status: "in_progress")` when you start.
+- `TaskUpdate(status: "completed")` when you finish, with artefacts committed. No "DONE:" SendMessage.
+- New dependency you can't resolve → add a `blockedBy` entry (or create a follow-up task and point your task at it). Use SendMessage to ask the right peer (or `team-lead`) the prose question; the `blockedBy` is the formal signal.
+
+Dispute rulings to disputing parties are a legitimate SendMessage use (they're communication, not a state transition on your task — your ruling-authoring task is yours to complete via `TaskUpdate`).
+
+See `${CLAUDE_PLUGIN_ROOT}/docs/process.md` § "The two channels".
 
 ## The output style
 

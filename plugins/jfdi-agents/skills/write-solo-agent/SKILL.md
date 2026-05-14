@@ -177,7 +177,7 @@ The shape mirrors `write-agent`'s teammate template, with five differences:
 2. The mission section explicitly names "outside the team-of-agents flow" and "human-paired".
 3. The two-licensed-paths principle is the central organising idea, stated as prose.
 4. The "what you must NOT edit" list is heavier than for teammates — the absence of a TeamLead routing back means the agent is the last line of defence against scope creep.
-5. The closing protocol allows for two endings (completed work or handover) instead of the teammate's single `DONE: / BLOCKED:` signal.
+5. The closing protocol allows for two endings (completed work or handover) instead of the teammate's `TaskUpdate(status: "completed")` signal.
 
 ## How to audit an existing solo-agent body
 

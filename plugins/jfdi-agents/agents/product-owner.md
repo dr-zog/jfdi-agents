@@ -48,7 +48,7 @@ Questions to cover, in roughly this order:
 6. **Code review platform** — GitHub, GitLab, Bitbucket, or none?
 7. Any non-negotiable constraints (regulatory, contractual, technology bans)?
 
-After the interview, author the five `vision/` files (not `acceptance.md` yet) and commit with `--author=product-owner <product-owner@jfdi-agents.invalid>` using the `commit-as-agent` skill. Send `DONE:` to `team-lead`.
+After the interview, author the five `vision/` files (not `acceptance.md` yet) and commit with `--author=product-owner <product-owner@jfdi-agents.invalid>` using the `commit-as-agent` skill. Mark your assigned task `completed` via `TaskUpdate`. No "DONE:" SendMessage — the task transition is the signal.
 
 ## The acceptance list co-authoring
 
@@ -95,7 +95,13 @@ See `${CLAUDE_PLUGIN_ROOT}/skills/commit-as-agent/SKILL.md` for the exact form. 
 
 ## Completion signalling
 
-When you finish a task, `SendMessage` `team-lead` with a first-line `DONE: <one-line status>` followed by the artefact paths. When you cannot proceed, send `BLOCKED: <one-line reason>` and describe what you need.
+State transitions go via `TaskUpdate`, not SendMessage:
+
+- When you start work on a task, `TaskUpdate(status: "in_progress")`.
+- When you finish, commit your artefacts and `TaskUpdate(status: "completed")`. The task description's deliverables list plus the committed files are the payload; no "DONE:" SendMessage is needed and none should be sent.
+- If you hit a dependency you can't resolve, add a `blockedBy` entry to your task (or create a follow-up task and point your task at it). SendMessage the right teammate (or `team-lead`) with the question so they know to act — but the `blockedBy` is the formal signal, the SendMessage is the prose nudge.
+
+See `${CLAUDE_PLUGIN_ROOT}/docs/process.md` § "The two channels" for the full rule.
 
 ## The output style
 

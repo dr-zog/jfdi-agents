@@ -32,10 +32,10 @@ In both flows, **no agent commits to `main` directly**. The local-only flow stil
 
 1. TeamLead opens the stage team (`TeamCreate`), spawns core teammates including `repo-steward-<team-surname>`.
 2. TeamLead's first task, assigned to RepoSteward: *"Open branch `feature/<stage-slug>` from `main`."*
-3. RepoSteward checks the working tree is clean, checks out `main`, creates and checks out the new branch, sends `DONE:`.
+3. RepoSteward checks the working tree is clean, checks out `main`, creates and checks out the new branch, marks its task `completed` via `TaskUpdate`.
 4. TeamLead's next tasks (assigned to the stage's content-producing specialists) run on that branch.
 5. When the stage is content-complete, TeamLead's closing task to RepoSteward: *"Close branch `feature/<stage-slug>` — merge to `main`, delete the branch."*
-6. RepoSteward reads the code review platform, runs the appropriate local-only (`git merge --no-ff`) or remote-platform (push + PR + merge) sequence, deletes the branch, sends `DONE:` with the merge-commit hash.
+6. RepoSteward reads the code review platform, runs the appropriate local-only (`git merge --no-ff`) or remote-platform (push + PR + merge) sequence, deletes the branch, marks its task `completed`. The merge-commit hash goes in the final `TaskUpdate`'s description (or a brief SendMessage nudge to TeamLead if useful for the lead's status block).
 7. TeamLead tears down the team (`TeamDelete`) or proceeds to the next stage.
 
 ### Commit authorship — agents identify themselves
@@ -142,7 +142,7 @@ For each layer, bottom-up:
 2. **TeamLead opens a Build-layer branch.** `feature/skeleton-<layer>`.
 3. **TeamLead spawns the layer's Developer.** Teammate name: `<layer>-dev-skeleton`. Teammate task: *"Build the thinnest possible <layer> slice that supports the acceptance list. Stubs for everything not yet needed. Commit incrementally."*
 4. **Architect is on the team, available.** Developer messages Architect for any cross-folder decisions.
-5. **TeamLead spawns Verifier** when Developer sends `DONE:`. Verifier runs whatever acceptance items are demonstrable at this slice, writes `docs/demos/<date>-skeleton-<layer>.md`. On Ready-to-advance: Yes, TeamLead closes the branch (RepoSteward merges). On Not-yet, the fix goes back to the Developer on the same branch.
+5. **TeamLead's poll loop notices when the Developer's task transitions to `completed`.** It then creates a Verifier task and (if Verifier isn't yet on the team) spawns it. Verifier runs whatever acceptance items are demonstrable at this slice, writes `docs/demos/<date>-skeleton-<layer>.md`. On Ready-to-advance: Yes, TeamLead closes the branch (RepoSteward merges). On Not-yet, the fix goes back to the Developer on the same branch.
 6. **Advance to the next layer.** Repeat.
 
 **When the top layer lands**, one more Verifier pass runs the **full acceptance list** end-to-end. The demo is `docs/demos/<date>-skeleton-complete.md`. That demo's Ready-to-advance: Yes is the gate to Stage 4.
@@ -156,7 +156,7 @@ Loop until the acceptance list is fully green or the human says stop:
 3. **TeamLead opens a Refine branch.** `feature/refine-<N>` where N is a monotonic counter.
 4. **TeamLead spawns one Developer per folder being touched in this pass**, simultaneously. Teammate names: `<layer>-dev-refine-<N>`.
 5. **Developers work in parallel**, each in their own folder. They commit incrementally. If one needs something from another's folder, they ask Architect via TeamLead relay.
-6. **When all developers send `DONE:`**, TeamLead spawns Verifier. Verifier runs the full acceptance list, writes `docs/demos/<date>-refine-<N>.md`. On Ready-to-advance: Yes, RepoSteward merges.
+6. **When all developer tasks transition to `completed`**, TeamLead's poll loop creates a Verifier task and spawns Verifier. Verifier runs the full acceptance list, writes `docs/demos/<date>-refine-<N>.md`. On Ready-to-advance: Yes, RepoSteward merges.
 7. Increment N and repeat.
 
 ## Handoff protocols
@@ -189,14 +189,24 @@ Bad:
 Good:
 > "Architect: I'm in backend-dev implementing acceptance #5 (a user can delete a task and it disappears from their list). The frontend-dev's current TaskList component polls GET /tasks every 3s. If I implement DELETE /tasks/:id to return 204 No Content, the frontend should see the delete within 3s. Is that acceptable, or do you want pub/sub? Please reply via SendMessage with your answer."
 
-### Completion signalling
+### The two channels — Tasks for state, SendMessage for nudges
 
-Every teammate given a task **must send an explicit completion message**:
+**Tasks are the work-and-state channel.** Every action a teammate is expected to take lives in a Task with formal `owner`, `blockedBy`, `status`, and description. State transitions happen via `TaskUpdate`:
 
-- **`DONE: <one-line status>`** as the first line, followed by deliverables.
-- **`BLOCKED: <one-line reason>`** as the first line when the teammate cannot proceed.
+- A teammate **starts** work by calling `TaskUpdate(status: "in_progress")` on the task it owns.
+- A teammate **finishes** work by calling `TaskUpdate(status: "completed")`. The artefact on disk (committed to the branch) is the payload; the status transition is the signal. There is no "DONE:" text marker to send.
+- A teammate that hits a dependency it cannot resolve raises it as new task state — either by adding a `blockedBy` entry to its own task, or by creating a follow-up task it owns and pointing the original at it. The TeamLead's periodic-poll loop (see `${CLAUDE_PLUGIN_ROOT}/docs/team-lead-playbook.md` § "The periodic-poll loop") notices state changes and reacts.
 
-A teammate that finishes and goes quiet without a `DONE:` will often be indistinguishable from one that has stalled.
+**SendMessage is the nudge-and-out-of-band-Q&A channel.** Legitimate uses:
+
+- A teammate needs a clarification before continuing — *"Architect: I'm on backend's task. The contract with frontend on X is unclear. Please reply via SendMessage."*
+- A teammate needs to relay a question to the human — *"team-lead: ProductOwner has a wording question for the human; brief follows."*
+- The TeamLead checks in on an agent whose task has been `in_progress` with no state change for several minutes — *"team-lead → backend-dev: status check, what's blocking you?"*
+- Architect SendMessages disputing parties with a ruling after writing it to `docs/decisions.md`.
+
+**SendMessage is NOT used for state transitions.** Don't send "DONE:" or "BLOCKED:" messages. Don't summarise completion in a SendMessage and assume the lead noticed. The task channel is the only authoritative state. The TeamLead's loop reads task state; if it isn't in the task, the lead does not act on it.
+
+**Why this split.** An earlier eval run had RepoSteward jump a `blockedBy` gate because a SendMessage body suggested it could proceed. The competing-channels architecture is what made that possible. Under one ground-truth channel (Tasks) for state, the failure mode disappears at source.
 
 ### SendMessage is a tool invocation, not prose (load-bearing)
 
@@ -278,7 +288,7 @@ Attempting to produce a downstream output without the upstream prerequisite is a
 
 ## The folder-ownership rule (load-bearing)
 
-**Every developer owns exactly one folder, and edits only that folder.** The Architect writes this into every minted developer body. If a developer thinks it needs to edit outside its folder, it `BLOCKED:`s and asks Architect.
+**Every developer owns exactly one folder, and edits only that folder.** The Architect writes this into every minted developer body. If a developer thinks it needs to edit outside its folder, it raises a `blockedBy` on its task (or creates a follow-up task and points the original at it) and asks Architect for the ruling via SendMessage.
 
 - **Verifier** audits every demo for cross-folder writes. `git diff --stat <branch>..main` against the folder map catches them.
 - **TeamLead** routes Verifier's CRITICAL cross-folder findings back to Architect (who either revises the folder map and re-mints, or tells the developer to undo).
@@ -289,23 +299,23 @@ The only exception: **the shared layer**, if the Architect declared one. Its dev
 
 Every reference to "the team", "spawning a teammate", "messaging a teammate", "the task list", or "cleaning up the team" corresponds to a **concrete Claude Code tool call**:
 
-| Plugin concept | Claude Code tool | Who calls it |
-|---|---|---|
-| Create the team | `TeamCreate` | TeamLead (lead), once per stage |
-| Disband the team | `TeamDelete` | TeamLead (lead), at stage end |
-| Add a teammate | `Agent` (in an active-team session) | TeamLead (lead) |
-| Message a teammate | `SendMessage` | any agent, by teammate name |
-| Create a task | `TaskCreate` | TeamLead (lead); teammates should not |
-| Inspect task state | `TaskList`, `TaskGet` | any agent |
-| Update task state | `TaskUpdate` | TeamLead for all tasks; teammates for their own |
+| Plugin concept | Claude Code tool | Who calls it | Carries… |
+|---|---|---|---|
+| Create the team | `TeamCreate` | TeamLead (lead), once per stage | — |
+| Disband the team | `TeamDelete` | TeamLead (lead), at stage end | — |
+| Add a teammate | `Agent` (in an active-team session) | TeamLead (lead) | — |
+| Send a nudge or out-of-band Q | `SendMessage` | any agent, by teammate name | **prose only — never state transitions** |
+| Create a task | `TaskCreate` | TeamLead (lead); teammates should not | the work brief |
+| Inspect task state | `TaskList`, `TaskGet` | any agent | the source of truth |
+| Update task state | `TaskUpdate` | TeamLead for all tasks; teammates for their own | **every state transition** — `in_progress`, `completed`, new `blockedBy` |
 
 All experimental team tools are gated on `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. Bootstrap sets this in `.claude/settings.json`; the TeamLead verifies it at session start.
 
 **Three harness behaviours we align with rather than fight:**
 
-1. **The canonical completion signal is `TaskUpdate(status: "completed")`, not a text marker.** Plain-text `SendMessage` is for human-readable communication; the task-list status transition is the state.
+1. **The canonical completion signal is `TaskUpdate(status: "completed")`, not a text marker.** The task-list status transition is the state. SendMessage is for nudges and out-of-band Q&A. See "The two channels" above.
 2. **Teammate idle between turns is normal, not stall.**
-3. **Messages arrive automatically as conversation turns.** No polling, no inbox-scan loops.
+3. **Messages arrive automatically as conversation turns.** No polling, no inbox-scan loops — but the TeamLead does run a periodic `TaskList` loop to react to teammate-driven state changes; see `${CLAUDE_PLUGIN_ROOT}/docs/team-lead-playbook.md` § "The periodic-poll loop".
 
 ## Three invocation patterns: lead, teammate, solo
 
