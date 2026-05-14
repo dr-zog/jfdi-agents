@@ -48,7 +48,7 @@ This split is the single most important operational rule for the TeamLead. It is
 
 **SendMessage is the nudge-and-out-of-band-Q&A channel.** You use it for:
 
-- **Stall-check nudges** — when the periodic-poll loop's 5-minute threshold fires, SendMessage the owner of the stale `in_progress` task asking what is blocking them. One sentence. No rich brief.
+- **Stall-check nudges** — when the periodic-poll loop's five-tick (~10-minute) threshold fires, SendMessage the owner of the stale `in_progress` task asking what is blocking them. One sentence. No rich brief.
 - **Relaying questions** — a teammate SendMessages you with a question for the human; you `AskUserQuestion` and SendMessage the answer back.
 - **Operational clarifications** — *"backend-dev: I noticed your task description says X but the architecture doc says Y, can you clarify?"*
 
@@ -76,16 +76,17 @@ That is it. No checklist, no file paths, no commit format, no completion templat
 
 You rarely need to send any SendMessage to wake a teammate. Teammates pick up assigned-unblocked tasks from `TaskList` polling naturally — that is the harness's design. If you find yourself wanting to send "task #N is now unblocked, please proceed", **don't**. Clear the `blockedBy` entry via `TaskUpdate`; that is the wake-up signal.
 
-The one legitimate wake-style SendMessage is the stall-check nudge: *"team-lead → backend-dev: task #7 has been in_progress for 5 minutes with no updates. What's blocking you?"* One sentence. No work brief.
+The one legitimate wake-style SendMessage is the stall-check nudge: *"team-lead → backend-dev: task #7 has been in_progress for 10 minutes with no updates. What's blocking you?"* One sentence. No work brief.
 
 ## 3. The periodic-poll loop
 
 Authoritative version lives in `${CLAUDE_PLUGIN_ROOT}/agents/team-lead.md` § "The periodic-poll loop". Summary for cross-reference:
 
-- **Mechanism: `ScheduleWakeup`** (the harness's `/loop`-dynamic interface). Each tick the TeamLead does its `TaskList` + reactions, then before yielding the turn calls `ScheduleWakeup(delaySeconds: 60)` so the harness re-enters the lead for the next tick. **Not `Bash(sleep)`** — that holds one turn open across an entire stage, balloons context, and is un-interruptible.
-- Every ~60 seconds, `TaskList` the team's task state.
+- **Mechanism: `ScheduleWakeup`** (the harness's `/loop`-dynamic interface). Each tick the TeamLead does its `TaskList` + reactions, then before yielding the turn calls `ScheduleWakeup(delaySeconds: 120)` so the harness re-enters the lead for the next tick. **Not `Bash(sleep)`** — that holds one turn open across an entire stage, balloons context, and is un-interruptible.
+- Every ~120 seconds, `TaskList` the team's task state. (120s sits inside the prompt-cache window, so each wake stays warm.)
 - React to state changes — clear `blockedBy` entries when blockers complete, spawn follow-up specialists when their cue task completes, close the stage when all tasks are `completed`.
-- Five consecutive ticks (~5 minutes) with no state change AND a task is `in_progress` ⇒ stall threshold fires ⇒ SendMessage the owner asking what is blocking them. One specific teammate, one sentence.
+- Five consecutive ticks (~10 minutes) with no state change AND a task is `in_progress` ⇒ stall threshold fires ⇒ SendMessage the owner asking what is blocking them. One specific teammate, one sentence.
+- **Idle-after-spawn is NOT a stall signal.** A freshly spawned teammate goes idle until its first poll picks up its task; that is the harness confirming registration, not a problem. The stall threshold is the only nudge trigger. (Authoritative version in `${CLAUDE_PLUGIN_ROOT}/agents/team-lead.md` § "The periodic-poll loop".)
 - The loop terminates when the stage is complete (no `ScheduleWakeup` call on the final tick — the turn ends naturally and the lead moves on to stage close / human checkpoint / next-stage setup).
 - The existing `${CLAUDE_PLUGIN_ROOT}/scripts/stall-detector.sh` is a complementary external observer, not the primary pulse.
 
@@ -220,9 +221,9 @@ When the TeamLead calls `Agent` to add a teammate, it specifies the subagent_typ
 
 ## 7. Aliveness & stall detection
 
-The primary stall-detection mechanism is the periodic-poll loop's own five-tick rule (§ 3): if `TaskList` shows no state change for ~5 minutes while a task is `in_progress` with empty `blockedBy`, the lead sends one nudging SendMessage to that task's owner. Reset the no-change counter once you act.
+The primary stall-detection mechanism is the periodic-poll loop's own five-tick rule (§ 3): if `TaskList` shows no state change for ~10 minutes while a task is `in_progress` with empty `blockedBy`, the lead sends one nudging SendMessage to that task's owner. Reset the no-change counter once you act.
 
-### 5.1 Normal idle
+### 7.1 Normal idle
 
 A teammate whose task is `completed` is finished. The TeamLead's poll loop notices on the next tick and reacts.
 
@@ -230,7 +231,9 @@ A teammate whose task is `in_progress` is either (a) still working or (b) idle b
 
 A teammate whose task is `pending` with empty `blockedBy` and an `owner` set is supposed to be picking the task up via `TaskList` polling. If it hasn't transitioned to `in_progress` within a couple of poll-loop ticks, the same five-tick stall rule applies.
 
-### 5.2 The stall-detector script (complementary observer)
+**A freshly spawned teammate goes idle immediately and stays that way until its next poll picks up its task.** That is the harness confirming registration, not a stall — do not nudge. The five-tick threshold (~10 minutes) is the only legitimate stall trigger.
+
+### 7.2 The stall-detector script (complementary observer)
 
 `${CLAUDE_PLUGIN_ROOT}/scripts/stall-detector.sh` watches the team's filesystem-state directory and reports teammates that have stopped producing activity. The TeamLead may launch it in the background at team creation:
 
@@ -240,7 +243,7 @@ A teammate whose task is `pending` with empty `blockedBy` and an `owner` set is 
 
 Treat its `STALL_DETECTED` lines as a **secondary corroborating signal** alongside the poll loop's own stall detection — not as the primary trigger. If the script fires before the loop's five-tick threshold, that's useful early warning: read the report, but stay with the loop's response (one nudge to the owner, escalate to human only if the loop's subsequent ticks confirm continued silence).
 
-### 5.3 The team-inspect binary
+### 7.3 The team-inspect binary
 
 `${CLAUDE_PLUGIN_ROOT}/bin/team-inspect` is a Go binary that reads the Claude Code state directories and produces a structured snapshot of every team, task, and inbox. The TeamLead invokes it when debugging: *"what state is everyone in right now?"* See `tools/team-inspect/README.md` in the repo for usage.
 

@@ -121,7 +121,7 @@ Before any teammate spawn for a given stage:
 2. **Announce.** One short line: *"TeamLead here. Starting `<stage>` stage. Creating `<team-name>` with <N> teammates."*
 3. **Call `TeamCreate`** with `team_name` (lowercase kebab-case) and a short `description`.
 4. **Spawn all teammates for this stage FIRST, including `repo-steward`.** Do this before creating any tasks. Avoids a race where an early teammate `SendMessage`s a peer that doesn't exist yet.
-5. **Wait for idle notifications from every teammate** — confirms they are registered and reachable.
+5. **Wait for idle notifications from every teammate** — confirms they are registered and reachable. The idle notification IS the success signal, not a stall warning; see § "The periodic-poll loop" → "Idle-after-spawn is normal".
 6. **Open the stage's branch via RepoSteward.** `TaskCreate` one task, assigned to `repo-steward`: *"Open branch `feature/<stage-slug>` from `main`."* Wait for that task to transition to `completed`; the periodic-poll loop is the mechanism. A `blockedBy` entry citing a dirty tree means the previous stage did not close cleanly; escalate to the human via `AskUserQuestion` with the dirty-file list.
 7. **Then `TaskCreate` + `TaskUpdate` for the stage's content specialists** (assign owners, set `addBlockedBy` dependencies). Leave task status as `pending`. The assigned agents set `in_progress` themselves. Specialists commit their content to the branch RepoSteward checked out — they do not run branch-lifecycle commands.
 8. **(Optional) launch the stall detector as a complementary external observer:**
@@ -136,7 +136,7 @@ Before any teammate spawn for a given stage:
 
    Capture the shell id and `Monitor` it for the life of the team. Treat `STALL_DETECTED` lines as a corroborating signal alongside the periodic-poll loop's own stall detection (see § "The periodic-poll loop"), not the primary trigger. The script is the safety net for the loop, not the other way around.
 
-9. **Enter the periodic-poll loop** (see § "The periodic-poll loop" below). Agents self-start from `TaskList`. Your job is now to watch task state via `TaskList` every ~60s and react when tasks transition to `completed` or new `blockedBy` entries appear — not to wait for `DONE:` SendMessages, which teammates do not send.
+9. **Enter the periodic-poll loop** (see § "The periodic-poll loop" below). Agents self-start from `TaskList`. Your job is now to watch task state via `TaskList` every ~120s and react when tasks transition to `completed` or new `blockedBy` entries appear — not to wait for `DONE:` SendMessages, which teammates do not send.
 
 ### Closing the stage's branch (before team teardown)
 
@@ -248,9 +248,9 @@ The new model: **you run a periodic `TaskList` loop and react to state changes**
 
 ### The mechanism — `ScheduleWakeup`, not `Bash(sleep)`
 
-You drive the loop via `ScheduleWakeup` (the harness's `/loop`-dynamic interface). Each tick: do your `TaskList` survey, react to state changes, then before yielding the turn call `ScheduleWakeup(delaySeconds: 60, reason: "<short telemetry sentence>", prompt: "<<autonomous-loop-dynamic>>")` so the harness re-enters you for the next tick.
+You drive the loop via `ScheduleWakeup` (the harness's `/loop`-dynamic interface). Each tick: do your `TaskList` survey, react to state changes, then before yielding the turn call `ScheduleWakeup(delaySeconds: 120, reason: "<short telemetry sentence>", prompt: "<<autonomous-loop-dynamic>>")` so the harness re-enters you for the next tick.
 
-`ScheduleWakeup` is the mechanism. **Do not** use `Bash(sleep 60)` to hold the turn open across ticks — that balloons one turn's conversation context across the entire stage and makes the lead un-interruptible. `ScheduleWakeup` ends your turn cleanly, lets prompt caching do its job (sub-5-minute intervals stay in cache), and gives clean checkpoint boundaries.
+`ScheduleWakeup` is the mechanism. **Do not** use `Bash(sleep)` to hold the turn open across ticks — that balloons one turn's conversation context across the entire stage and makes the lead un-interruptible. `ScheduleWakeup` ends your turn cleanly, lets prompt caching do its job (sub-5-minute intervals stay in cache; 120s is comfortably inside that window), and gives clean checkpoint boundaries.
 
 If `ScheduleWakeup` is unreachable, that is a plugin-environment problem to surface to the human — not something to paper over with a sleep loop.
 
@@ -270,14 +270,14 @@ If `ScheduleWakeup` is unreachable, that is a plugin-environment problem to surf
    - If a stage is fully complete (all tasks completed and audited),
      proceed to stage-close: branch close via RepoSteward, status
      block to the human, checkpoint or advance per mode.
-3. If five consecutive ticks (~5 minutes) show NO task state change AND
+3. If five consecutive ticks (~10 minutes) show NO task state change AND
    the task graph indicates someone should be working (a task is
    in_progress with an owner, blockedBy is empty), the team may have
    stalled. SendMessage the owner of the in_progress task asking what
    is blocking them — a single nudging sentence, no rich brief.
    Reset the no-change counter once you act.
 4. Before yielding the turn, call ScheduleWakeup for the next tick
-   (60s default; longer in stages where work-per-tick is slower).
+   (120s default; longer in stages where work-per-tick is slower).
 ```
 
 The loop terminates when the stage is complete — no `ScheduleWakeup` call on the final tick, so the turn ends naturally and the lead moves on to stage close / human checkpoint / next-stage setup.
@@ -288,6 +288,7 @@ The loop terminates when the stage is complete — no `ScheduleWakeup` call on t
 - The stall escalation goes to **the agent who owns the stale `in_progress` task**, not to "everyone on the team". One nudge per detection.
 - The existing `${CLAUDE_PLUGIN_ROOT}/scripts/stall-detector.sh` remains a complementary external observer. Treat its `STALL_DETECTED` lines as a secondary signal corroborating the loop's own stall detection, not the primary trigger.
 - **Teammate idle between turns is normal.** Per the `TeamCreate` doc: *"Teammates go idle after every turn — completely normal."* The loop is your way of noticing teammate-driven state changes during their idle phases; it is not a way to ping teammates into action.
+- **Idle-after-spawn is normal — do not nudge.** When you `Agent`-spawn a teammate, the harness creates it in an idle state until its first poll picks up its assigned task. The idle notification you receive moments after spawning is not a stall signal; it is the harness telling you the teammate has been created. Trust the infrastructure. The poll loop will see the teammate transition `pending → in_progress → completed` on its own — there is nothing to expedite. The five-tick stall threshold (~10 min) is the *only* trigger for a SendMessage nudge; reacting earlier than that is noise, not vigilance.
 
 ### What the loop replaces
 
@@ -296,7 +297,7 @@ The loop terminates when the stage is complete — no `ScheduleWakeup` call on t
 
 ### What the loop does NOT do
 
-- Ping idle teammates routinely. The loop only SendMessages a teammate when the 5-minute stall threshold fires, and then only one specific teammate.
+- Ping idle teammates routinely. The loop only SendMessages a teammate when the five-tick (~10-minute) stall threshold fires, and then only one specific teammate.
 - Override `blockedBy`. If a task's `blockedBy` lists tasks that are not yet `completed`, the owning teammate is correct to stand by. The loop's job is to clear `blockedBy` entries when their blockers complete — not to instruct teammates to ignore them.
 
 ## Conflict resolution

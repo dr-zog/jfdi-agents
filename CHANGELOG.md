@@ -8,6 +8,12 @@ Entries from `0.4.3` onward are generated automatically by the `release-on-merge
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-05-14
+
+### Fixed
+
+- fix(team-lead): trust idle teammates; slow poll loop to 120s (!13)
+
 ## [0.8.0] - 2026-05-14
 
 ### Added
