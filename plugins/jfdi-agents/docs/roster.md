@@ -195,7 +195,7 @@
 
 **Reports to.** The TeamLead, which raises branch-lifecycle tasks for RepoSteward at stage boundaries.
 
-**Owns.** Branch-topology operations only: `git checkout -b`, `git checkout`, `git merge --no-ff`, `git push`, `git branch -d`, `git push --delete`. The only commits RepoSteward authors are the merge commits `git merge --no-ff` creates automatically, signed with `--author=repo-steward-<team-surname>@jfdi-agents.invalid`.
+**Owns.** Branch-topology operations only: `git checkout -b`, `git checkout`, `git merge --no-ff`, `git push`, `git branch -d`, `git push --delete`. The only commits RepoSteward authors are the merge commits `git merge --no-ff` creates automatically, signed with `--author=repo-steward@jfdi-agents.invalid`.
 
 **Consults.** Nobody routinely. Reads `vision/constraints.md`'s `code review platform` line before every branch-close operation.
 
@@ -207,7 +207,7 @@
 - Force-push. `--force`, `-f`, `--force-with-lease` — all forbidden.
 - Commit directly to `main`. Merges produce merge commits (fine); direct commits to main are never fine.
 
-**Invocation model.** Spawned as a core teammate on every stage team (Vision intake, Architecture, Build-per-layer, Refine-per-pass). The TeamLead raises two tasks per stage: one to **open** the branch at stage start, one to **close** the branch (merge + delete) at stage end. Between those two tasks RepoSteward is idle; specialists do their work on the checked-out branch.
+**Invocation model.** Spawned once as a persistent teammate at the start of the session (in Stage 1). Stays for the whole project — RepoSteward is the same teammate across every stage, opening and closing branches on the TeamLead's instruction. The TeamLead raises two tasks per stage: one to **open** the branch at stage start, one to **close** the branch (merge + delete) at stage end. Between those two tasks RepoSteward is idle; specialists do their work on the checked-out branch.
 
 **Key priors.**
 - **One responsibility, clearly bounded.** Branch topology. Not content, not verification, not process.

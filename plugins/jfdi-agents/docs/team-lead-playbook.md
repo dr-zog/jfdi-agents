@@ -4,9 +4,11 @@
 
 ## 1. Conventions
 
-### 1.1 Team name
+### 1.1 Team name — chosen by the harness
 
-A run of the plugin creates a Claude Code agent team. Team names are short, lowercase, kebab-case, and unique across the user's Claude Code state. The TeamLead picks a fresh team surname at session start, e.g. `jfdi-apollo`, `jfdi-mercury`, `jfdi-puffin`. Pick something memorable — it appears in log entries and in author slugs.
+As of Claude Code v2.1.178, `TeamCreate` and `TeamDelete` are removed and there is **exactly one team per session**, formed automatically when the first teammate is spawned. The harness names it `session-<first-8-of-session-id>`. The TeamLead does not pick a team name; any `team_name` passed to the `Agent` tool is accepted but ignored.
+
+The team is cleaned up automatically when the session ends. Do not attempt to tear it down mid-session — there is nothing to tear down that stays behind for the next stage; the same team runs throughout.
 
 ### 1.2 Teammate naming
 
@@ -18,12 +20,13 @@ All teammate names are lowercase kebab-case. Role name first, suffix last:
 | Architect | `architect` | `architect` |
 | Developer (minted) | `<layer>-dev-<phase>-<suffix>` | `backend-dev-skeleton`, `frontend-dev-refine-3` |
 | Verifier | `verifier-<phase>-<suffix>` | `verifier-skeleton-data`, `verifier-refine-1` |
-| RepoSteward | `repo-steward` | `repo-steward` (one per team) |
+| RepoSteward | `repo-steward` | `repo-steward` (one per session) |
 
 Naming rules:
 - Lowercase kebab-case. No underscores, no camelCase.
-- The phase suffix makes it obvious which run a teammate belongs to (Build-phase vs Refine-pass-N).
-- A role may be spawned more than once during the project lifetime — each spawn gets a fresh suffix.
+- The phase suffix makes it obvious which slice of work a teammate belongs to (Build-phase vs Refine-pass-N).
+- A role may be spawned more than once during the project lifetime (a new Refine pass mints fresh developer teammates) — each spawn gets a fresh suffix.
+- Persistent roles (`product-owner`, `architect`, `repo-steward`) get **one spawn per session** and stay throughout.
 
 ### 1.3 Commit-author slugs
 
@@ -78,6 +81,18 @@ You rarely need to send any SendMessage to wake a teammate. Teammates pick up as
 
 The one legitimate wake-style SendMessage is the stall-check nudge: *"team-lead → backend-dev: task #7 has been in_progress for 10 minutes with no updates. What's blocking you?"* One sentence. No work brief.
 
+### Idle notifications are not events
+
+A bare idle notification from a teammate is not an event. Zero response, zero state-check. Every teammate emits an idle notification after every turn — that is the harness's design, not a signal that something needs your attention. Ignore them. The poll loop (§ 3) is what drives you. Full statement of the rule in `${CLAUDE_PLUGIN_ROOT}/agents/team-lead.md`.
+
+### Never ask, read
+
+Status comes from disk (`TaskList`, `TaskGet`, `git log`, `git status`), not from asking a teammate what it is doing. Do not SendMessage teammates for status. Two failure modes this prevents: (1) messages cross in flight with the artefacts they ask about, so the reply is moot before it arrives; (2) the question invites the teammate to respond with prose, waking you and consuming context for information that was on disk. Inbound SendMessages from teammates are **confirmation** of already-observable state, not **triggers** for TeamLead action. Full statement of the rule in `${CLAUDE_PLUGIN_ROOT}/agents/team-lead.md`.
+
+### Choreography vs quality gates
+
+The choreography — polling cadence, spawn timing, whether you nudge or wait — is soft. Trust the agents; slacken your ceremony. The quality gates — sequential-skeleton rule, folder-ownership, no-advance-past-Not-yet, Verifier sign-off, `blockedBy` authoritative — are non-negotiable. Slackening one is fine; slackening the other is a bug. Full statement in `${CLAUDE_PLUGIN_ROOT}/agents/team-lead.md` § "Choreography is discretionary; quality gates are non-negotiable".
+
 ## 3. The periodic-poll loop
 
 Authoritative version lives in `${CLAUDE_PLUGIN_ROOT}/agents/team-lead.md` § "The periodic-poll loop". Summary for cross-reference:
@@ -110,16 +125,16 @@ When the TeamLead main session launches, execute these steps in order.
    | Skeleton demo exists, Ready-to-advance: Yes | Stage 4 — Refine |
    | Acceptance list fully green | Stop — project complete |
 
-4. **Ask the human to confirm.** Via `AskUserQuestion`, confirm (a) the stage you've diagnosed is correct, (b) they want to proceed in Checkpointed or Autonomous JFDI mode. On confirmation, call `TeamCreate`.
-5. **Spawn the core teammates for the stage.** See § 5 below.
+4. **Ask the human to confirm.** Via `AskUserQuestion`, confirm (a) the stage you've diagnosed is correct, (b) they want to proceed in Checkpointed or Autonomous JFDI mode.
+5. **Spawn the teammates the stage needs.** See § 5 below. The first spawn forms the team implicitly; the harness names it `session-<first-8-of-session-id>`. No `TeamCreate` call.
 
 ## 5. Per-stage spawn playbook
 
-### 3.1 Stage 1 — Intake
+Under the single-session-team model, each stage transition **adds new teammates** to the running team. Persistent roles (`product-owner`, `architect`, `repo-steward`) are spawned once and stay for the whole project; ephemeral roles (per-layer skeleton devs, per-phase verifiers, per-pass refine devs) are spawned as their turn comes and can be shutdown-requested when their work is done.
 
-Team: `jfdi-<surname>-intake`.
+### 5.1 Stage 1 — Intake
 
-Spawn:
+**Add to team (first spawns — this implicitly forms the team):**
 - `product-owner` (the interactive interview)
 - `repo-steward`
 
@@ -128,15 +143,15 @@ First-task descriptions (paste these into `TaskCreate.description` — spawn pro
 - **RepoSteward** — owner: `repo-steward`, blockedBy: none. Description: *"Open branch `feature/vision` from `main`. Mark this task `completed` once the branch is checked out."*
 - **ProductOwner** — owner: `product-owner`, blockedBy: `[repo-steward's task above]`. Description: *"Run the Vision intake interview. Ask one question at a time via SendMessage to team-lead; team-lead will relay to the human via AskUserQuestion. Produce the five files in `vision/` described in the roster. Do not write `vision/acceptance.md` yet — that happens in Stage 2. Mark this task `completed` once the five files are committed."*
 
-At stage close, the poll loop notices both tasks complete; TeamLead opens a final close-branch task for RepoSteward and proceeds.
+At stage close, the poll loop notices both tasks complete; TeamLead opens a final close-branch task for RepoSteward and moves on to Stage 2 (no team teardown — the same team continues).
 
-### 3.2 Stage 2 — Architecture & team design
+### 5.2 Stage 2 — Architecture & team design
 
-Team: `jfdi-<surname>-architecture`.
+**Add to team:**
+- `architect` (new — the technical authority)
 
-Spawn:
-- `architect`
-- `product-owner` (still around — co-authors the acceptance list)
+**Already on team from Stage 1** (no re-spawn):
+- `product-owner` (co-authors the acceptance list)
 - `repo-steward`
 
 First-task descriptions:
@@ -153,18 +168,17 @@ Before closing the stage: TeamLead runs a sanity check:
 
 On any failure, route back to Architect as a `FIX:` task.
 
-### 3.3 Stage 3 — Build (walking skeleton)
+### 5.3 Stage 3 — Build (walking skeleton)
 
-**One branch per layer.** Each layer is its own stage-team within Stage 3.
+**One branch per layer.** Each layer runs on its own branch within the one persistent session team.
 
 For each layer (Architect picks the order — typically data first):
 
-Team: `jfdi-<surname>-skeleton-<layer>`.
+**Add to team (per layer):**
+- `<layer>-dev-skeleton` (the minted developer for this layer — spawned via `Agent(subagent_type: "<layer>-dev", prompt: "role-orientation")` so the project-scoped subagent definition is honoured)
 
-Spawn:
-- `architect` (kept from previous team's memory via kickoff brief)
-- `<layer>-dev-skeleton` (the minted developer for this layer)
-- `repo-steward`
+**Already on team** (no re-spawn):
+- `architect`, `product-owner`, `repo-steward`
 
 Verifier (`verifier-skeleton-<layer>`) is spawned later — when the poll loop notices the developer's task transition to `completed` (and architect's approval task is also `completed`), the lead spawns Verifier and opens its task.
 
@@ -180,20 +194,23 @@ After the developer's task and Architect's approval task both transition to `com
 
 On Not yet: the lead raises a FIX task assigned to the developer (with `blockedBy: [original developer task]` if the developer needs the prior context); re-runs Verifier after the fix. On Yes: lead opens the close-branch task for RepoSteward. Advance to the next layer.
 
+**Retiring ephemeral layer teammates.** Once a layer's branch is merged and its Verifier's demo committed, that layer's `<layer>-dev-skeleton` and its `verifier-skeleton-<layer>` have finished their role for the session. Send each a shutdown request (*"Ask the `<teammate-name>` teammate to shut down — your layer is merged and demoed."*). If the teammate approves, it exits gracefully; if it rejects, ask the human via `AskUserQuestion`. Persistent roles (`architect`, `product-owner`, `repo-steward`) are **not** retired — they carry into Stage 4.
+
 **When the last layer lands**, the lead opens one more Verifier task with the **full acceptance list**:
 - **`verifier-skeleton-complete`** — Description: *"Run the full acceptance list. Write `docs/demos/<date>-skeleton-complete.md`. Mark `completed` once committed."*
 
 That demo's Ready-to-advance gates Stage 4.
 
-### 3.4 Stage 4 — Refine (parallel work)
+### 5.4 Stage 4 — Refine (parallel work)
 
 **One branch per refine pass.**
 
-Team: `jfdi-<surname>-refine-<N>`.
+**Add to team (per pass):**
+- One `<layer>-dev-refine-<N>` **per folder being touched in this pass** (spawned in one message so they run concurrently; each spawned via its project-scoped subagent definition)
 
-Spawn (in one message, so they run concurrently):
-- `architect` (always — available for cross-folder brokering)
-- One `<layer>-dev-refine-<N>` **per folder being touched in this pass**
+**Already on team** (no re-spawn):
+- `architect` (available for cross-folder brokering)
+- `product-owner`
 - `repo-steward`
 
 Verifier (`verifier-refine-<N>`) is spawned later — when the poll loop sees every developer task `completed`, the lead spawns Verifier and opens its task.
@@ -209,15 +226,19 @@ After every developer task is `completed`:
 
 On Not yet: route CRITICALs to the relevant developers; re-run Verifier. On Yes: RepoSteward merges. Increment N and loop.
 
+**Retiring ephemeral refine teammates.** After each pass merges, the `<layer>-dev-refine-<N>` teammates and the `verifier-refine-<N>` teammate for that pass have finished their role. Send shutdown requests as for Stage 3. The next pass mints fresh `<layer>-dev-refine-<N+1>` teammates for the new pass number.
+
 ## 6. Tool-resolution rules for teammate spawning
 
-When the TeamLead calls `Agent` to add a teammate, it specifies the subagent_type (the role), the teammate name, and optionally overrides for `tools`/`disallowed-tools`/`model`. Key rules:
+When the TeamLead calls `Agent` to add a teammate, it specifies the subagent_type (the role), a teammate name, and optionally overrides for `tools`/`disallowed-tools`/`model`. Key rules:
 
-1. **Teammate frontmatter `tools`/`disallowed-tools` is honoured.** `disallowed-tools` is applied first; `tools` is resolved against the remaining pool.
-2. **Teammates inherit the lead's permission restrictions.** Keep the TeamLead's denylist empty; push role-specific restrictions to the specialists themselves.
-3. **`AskUserQuestion` is harness-blocked for every teammate**, regardless of frontmatter. Any agent whose role requires structured multi-choice questions must run as the main session. This is why TeamLead is the only supported main-session entry point; Vision intake is TeamLead-driven via the relay pattern.
-4. **Plugin-shipped agents load from `<CLAUDE_CONFIG_DIR>/plugins/cache/dr-zog-jfdi-agents/<version>/`** — under the bootstrap-generated `./jfdi.sh` launcher this resolves to `./.claude-state/plugins/cache/dr-zog-jfdi-agents/<version>/`, not the source tree. Frontmatter edits take effect on live installs only after a version bump + `/plugin update` (or a dev-mode install). This does NOT apply to the developer agents the Architect mints into `.claude/agents/` — those are project-scoped and live.
-5. **The Architect-minted developers are project-scoped subagents.** They live in `.claude/agents/` in the downstream repo. They are addressable as teammates by the TeamLead. They do not benefit from plugin caching; edits take effect on the next spawn.
+1. **Always spawn via `subagent_type`, never by passing the full agent body as the `prompt`.** The prompt argument to `Agent` is meant for role-orientation only — one paragraph naming the role, the team, and the fact that the teammate will pick up assigned tasks via `TaskList`. If you pass the full body text of a subagent as the prompt, the harness treats the teammate as an ad-hoc spawn: it carries no role metadata, appears in the exit menu as raw prompt text ("You are verifier-refine-3, the independent Verifier…") instead of structured metadata ("Role: Verifier. Team: session (…)"), and cannot benefit from later subagent-definition edits. Both the plugin-shipped specialists and the Architect-minted `.claude/agents/<layer>-dev.md` files are proper subagent definitions — reference them by `subagent_type`, not by inlining their bodies.
+2. **Teammate frontmatter `tools`/`disallowed-tools` is honoured.** `disallowed-tools` is applied first; `tools` is resolved against the remaining pool.
+3. **Teammates inherit the lead's permission restrictions.** Keep the TeamLead's denylist empty; push role-specific restrictions to the specialists themselves.
+4. **`AskUserQuestion` is harness-blocked for every teammate**, regardless of frontmatter. Any agent whose role requires structured multi-choice questions must run as the main session. This is why TeamLead is the only supported main-session entry point; Vision intake is TeamLead-driven via the relay pattern.
+5. **Plugin-shipped agents load from `<CLAUDE_CONFIG_DIR>/plugins/cache/dr-zog-jfdi-agents/<version>/`** — under the bootstrap-generated `./jfdi.sh` launcher this resolves to `./.claude-state/plugins/cache/dr-zog-jfdi-agents/<version>/`, not the source tree. Frontmatter edits take effect on live installs only after a version bump + `/plugin update` (or a dev-mode install). This does NOT apply to the developer agents the Architect mints into `.claude/agents/` — those are project-scoped and live.
+6. **The Architect-minted developers are project-scoped subagents.** They live in `.claude/agents/` in the downstream repo. They are addressable as teammates by the TeamLead via `subagent_type: "<layer>-dev"`. They do not benefit from plugin caching; edits take effect on the next spawn.
+7. **`team_name` on the `Agent` tool is accepted but ignored** (per the harness docs, as of v2.1.178). The team is fixed as `session-<first-8-of-session-id>`; don't try to override it.
 
 ## 7. Aliveness & stall detection
 
@@ -255,7 +276,7 @@ Every stage transition, the TeamLead prints a short block to the human. Format:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Stage: <n> — <name>
 Status: <in-progress | complete | blocked>
-Team: jfdi-<surname>-<stage>
+Team: session-<hash>  (harness-derived, see § 1.1)
 Teammates: <name1>, <name2>, ...
 Last event: <one-line summary>
 Next action: <what happens now or what's awaiting>
@@ -278,13 +299,13 @@ A human returning after a break should be able to read three blocks and know exa
 
 ## 10. Failure recovery playbook
 
-### 8.1 A minted developer agent is malformed
+### 10.1 A minted developer agent is malformed
 
 Symptom: TeamLead attempts to spawn `<layer>-dev-...`, `Agent` call fails with *"subagent definition not found"* or parse error.
 
 Resolution: The Architect minted the agent badly. Route back to Architect as a `FIX:` task quoting the error. Do not attempt to hand-edit `.claude/agents/` — regenerate via the `write-agent` skill.
 
-### 8.2 A developer touches files outside its folder
+### 10.2 A developer touches files outside its folder
 
 Symptom: Verifier's demo has a CRITICAL finding citing cross-folder writes.
 
@@ -292,32 +313,29 @@ Resolution: Two paths depending on intent.
 - **Developer made a mistake.** Route a `FIX:` task to the developer: *"Revert your changes in `<other-folder>/`. If you think you need something from that folder, ask Architect via SendMessage."*
 - **The folder map needs updating.** If the Architect judges the cross-folder write was necessary, the folder map is wrong. Route back to Architect: *"Revise `docs/architecture.md` folder map and re-mint the affected developers via the write-agent skill."*
 
-### 8.3 A technical dispute reaches the Architect
+### 10.3 A technical dispute reaches the Architect
 
 Flow: Architect reads both positions, writes the ruling to `docs/decisions.md`, SendMessages both parties with the ruling. Parties are bound. If one party pushes back, Architect re-reads, revises or confirms, commits the decision to the log. Second appeal is to the human.
 
-### 8.4 Verifier finds the system won't start
+### 10.4 Verifier finds the system won't start
 
 Symptom: Demo has `Ready-to-advance: Not yet`, startup CRITICAL.
 
 Resolution: Route to the developer of the layer Verifier's log implicates. If it's a cross-layer issue, route to Architect first for triage. Do not advance until a subsequent demo shows the system starts.
 
-### 8.5 Zombie team recovery (destructive — read twice)
+### 10.5 Resumption after a session restart or crash
 
-Symptom: a team directory exists under `$CLAUDE_CONFIG_DIR/teams/<name>/` (or `~/.claude/teams/<name>/` if `CLAUDE_CONFIG_DIR` is unset) with no recent file activity; `SendMessage` writes succeed but no teammate ever responds.
+Under the single-session-team model, there is no "zombie team recovery" scenario in the old sense — the harness auto-cleans a team's config directory at session exit, and each new session gets a fresh `session-<hash>` team. The scenarios that DO arise:
 
-**Before you run any `rm`:**
+**Resumed session (`/resume` or `/rewind`).** The harness restores the task list but **does not restore in-process teammates** (per the agent-teams docs: *"the lead may attempt to message teammates that no longer exist"*). Recovery:
 
-1. **Confirm the team name matches this session's surname.** The TeamLead picked a surname at session start (see § 1.1) and every team this session created follows the `jfdi-<surname>-*` pattern. If the zombie directory's name does not start with the surname this session is using, **STOP** — you are about to destroy another project's team state. Escalate to the human via `AskUserQuestion`: *"I see a zombie team `<name>` that does not match this session's surname `<our-surname>`. It likely belongs to another project. Should I leave it alone?"*
-2. **Snapshot `config.json`'s `members` array** so you can re-spawn the same teammates under the same names.
-3. **Remove both directories together**, scoped to the verified name:
-   ```bash
-   STATE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-   rm -rf "$STATE_DIR/teams/<verified-name>" "$STATE_DIR/tasks/<verified-name>"
-   ```
-4. **`TeamCreate` with the same name and re-spawn** each teammate from the snapshot.
+1. **Read `TaskList`** — this is your ground truth for where the prior session left off.
+2. **Read the on-disk state** — `vision/`, `docs/architecture.md`, `.claude/agents/*-dev.md`, `docs/demos/`, `git log`.
+3. **Re-spawn only the teammates you need for the next work** — the persistent roles (`architect`, `product-owner`, `repo-steward`) plus whatever ephemeral role owns the currently-`in_progress` or next task. Do NOT try to re-spawn every teammate the prior session had; the ephemeral ones (e.g. `verifier-skeleton-data`) have their work already committed.
 
-**Never improvise the `rm`.** A wildcard, a guessed name, or a "clean everything" sweep is always wrong. One verified team name per recovery.
+**Stale task directory from a killed session.** If the prior session was killed without clean exit (crash, kill -9, host reboot), the harness's cleanup may not have fired. You'll see a `tasks/session-<old-hash>/` directory that does not match this session's hash. Do NOT try to clean it up yourself — surface it to the human via `AskUserQuestion` as an operator hygiene item. The `${CLAUDE_PLUGIN_ROOT}/bin/team-inspect` tool can characterise it if useful.
+
+**Never run `rm -rf` on `<CLAUDE_CONFIG_DIR>/teams/` or `<CLAUDE_CONFIG_DIR>/tasks/`.** The old per-project `rm` recovery routine assumed multiple teams per project; that assumption is gone. If a directory looks stale, ask the human — they own destructive cleanup.
 
 ## 11. Disallowed behaviours
 

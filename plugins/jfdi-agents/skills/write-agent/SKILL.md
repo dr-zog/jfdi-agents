@@ -54,7 +54,7 @@ These are the process-creep traps. If any of these appear in an agent body, rewr
 | "You are a teammate on a Claude Code agent team. The TeamLead is the lead." | Topology; every teammate runs this way — stating it in every body is tautology. | Nowhere (implicit from being spawned). |
 | "Verifier will SendMessage you with..." | Hardcodes who spawned you; breaks when a different flow spawns you for the same capability. | The task brief written at runtime by the lead. |
 | "SendMessage Developer when done with a plain-text summary." | Hardcodes the notify target. | Harness-native: `TaskUpdate` to `completed` is the hand-off signal. The artefact on disk is the payload. |
-| "TaskUpdate your assigned task to `status: completed`." | Harness-native. The `TeamCreate` docs explicitly say *"Don't send structured JSON status messages — use TaskUpdate"*. | The harness trains this. Do not re-state. |
+| "TaskUpdate your assigned task to `status: completed`." | Harness-native. The agent-teams docs describe the task list as the canonical state channel. | The harness trains this. Do not re-state. |
 | "You are in the Build stage, after Architecture and before Refine." | Workflow stage knowledge. | The lead's state machine. |
 | "Next, Verifier will run the suite." | What-comes-next prediction. | Nowhere in an agent body. The lead decides. |
 | "**This step is mandatory.**" emphasis on individual steps | Implies other steps are optional. | Remove the emphasis; fix the structure if a step needs reinforcing. |
@@ -63,7 +63,7 @@ These are the process-creep traps. If any of these appear in an agent body, rewr
 
 Claude Code's agent-teams harness trains teammates on these without your body having to say so:
 
-- **`TaskUpdate` to `status: "completed"` on task closure.** Cited directly by the `TeamCreate` tool's documentation.
+- **`TaskUpdate` to `status: "completed"` on task closure.** Cited directly by the agent-teams documentation.
 - **Idle between turns is normal.** *"Teammates go idle after every turn — this is completely normal and expected."* Do not put "do not go idle" language in a body.
 - **Messages are delivered automatically.** *"Messages from teammates are delivered automatically; you don't check an inbox."* Do not put polling or inbox-checking language in a body.
 

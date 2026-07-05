@@ -8,6 +8,13 @@ Entries from `0.4.3` onward are generated automatically by the `release-on-merge
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-07-05
+
+### Fixed
+
+- feat: align with Claude Code v2.1.178+ single-session-team model (!14)
+- fix(team-lead): tighten choreography — bare idles ignored, never ask for status (!15)
+
 ## [0.8.1] - 2026-05-14
 
 ### Fixed

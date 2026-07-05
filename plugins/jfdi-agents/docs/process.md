@@ -30,13 +30,13 @@ In both flows, **no agent commits to `main` directly**. The local-only flow stil
 
 **Per-stage branch lifecycle (applies to every stage with its own branch):**
 
-1. TeamLead opens the stage team (`TeamCreate`), spawns core teammates including `repo-steward-<team-surname>`.
+1. TeamLead spawns any new teammates the stage needs via `Agent` (persistent roles carry over from prior stages; ephemeral roles are added as their turn comes). The first spawn of the session implicitly forms the team; the harness names it `session-<first-8-of-session-id>`. There is no `TeamCreate` call — that tool no longer exists.
 2. TeamLead's first task, assigned to RepoSteward: *"Open branch `feature/<stage-slug>` from `main`."*
 3. RepoSteward checks the working tree is clean, checks out `main`, creates and checks out the new branch, marks its task `completed` via `TaskUpdate`.
 4. TeamLead's next tasks (assigned to the stage's content-producing specialists) run on that branch.
 5. When the stage is content-complete, TeamLead's closing task to RepoSteward: *"Close branch `feature/<stage-slug>` — merge to `main`, delete the branch."*
 6. RepoSteward reads the code review platform, runs the appropriate local-only (`git merge --no-ff`) or remote-platform (push + PR + merge) sequence, deletes the branch, marks its task `completed`. The merge-commit hash goes in the final `TaskUpdate`'s description (or a brief SendMessage nudge to TeamLead if useful for the lead's status block).
-7. TeamLead tears down the team (`TeamDelete`) or proceeds to the next stage.
+7. TeamLead retires ephemeral teammates whose role is genuinely finished (SendMessage shutdown requests — see `${CLAUDE_PLUGIN_ROOT}/docs/team-lead-playbook.md` § 5), then proceeds to the next stage. Persistent teammates (`architect`, `product-owner`, `repo-steward`) carry on. There is no `TeamDelete` — that tool no longer exists, and the same team runs throughout the session.
 
 ### Commit authorship — agents identify themselves
 
@@ -61,7 +61,7 @@ Where `<slug>` is the teammate name lowercased with no colons or spaces.
 **Examples:**
 
 - `backend-dev-skeleton`: `git commit --author="backend-dev-skeleton <backend-dev-skeleton@jfdi-agents.invalid>" -m "feat(backend): add tasks HTTP route"`
-- `architect-arch`: `git commit --author="architect-arch <architect-arch@jfdi-agents.invalid>" -m "docs: initial architecture doc and folder map"`
+- `architect`: `git commit --author="architect <architect@jfdi-agents.invalid>" -m "docs: initial architecture doc and folder map"`
 
 Teammate names are **always** all-lowercase kebab-case. See `${CLAUDE_PLUGIN_ROOT}/docs/team-lead-playbook.md` for the full naming convention.
 
@@ -175,7 +175,7 @@ This plugin's design is built on Claude Code [agent teams](https://code.claude.c
 
 4. **If the needed teammate isn't on the team yet**, A `SendMessage`s the **lead** (addressed as `team-lead`; see next paragraph) with a request of the shape *"please add Architect to the team so I can consult on X, or relay the question to Architect on my behalf."*
 
-**The lead's addressable name is `team-lead`, not `TeamLead`.** `TeamCreate` returns `lead_agent_id: "team-lead@<team-name>"`, and `team-lead` is the name `SendMessage` expects. "TeamLead" is the lead's **role**, not its addressable identity. Getting this wrong is silent: `SendMessage({to: "TeamLead", ...})` returns `success: true`, writes to a dead-letter inbox for a recipient that doesn't exist, and the lead never sees the message body.
+**The lead's addressable name is `team-lead`, not `TeamLead`.** The harness assigns the lead the addressable identity `team-lead@<team-name>` (where `<team-name>` is the auto-generated `session-<hash>`). `SendMessage({to: "team-lead", ...})` reaches the lead. "TeamLead" is the lead's **role**, not its addressable identity. Getting this wrong is silent: `SendMessage({to: "TeamLead", ...})` returns `success: true`, writes to a dead-letter inbox for a recipient that doesn't exist, and the lead never sees the message body.
 
 **Every agent prompt in this plugin that mentions `SendMessage` to the lead must use `to: "team-lead"` explicitly.** Role-label shorthand silently fails.
 
@@ -301,9 +301,10 @@ Every reference to "the team", "spawning a teammate", "messaging a teammate", "t
 
 | Plugin concept | Claude Code tool | Who calls it | Carries… |
 |---|---|---|---|
-| Create the team | `TeamCreate` | TeamLead (lead), once per stage | — |
-| Disband the team | `TeamDelete` | TeamLead (lead), at stage end | — |
-| Add a teammate | `Agent` (in an active-team session) | TeamLead (lead) | — |
+| ~~Create the team~~ | ~~`TeamCreate`~~ | **Removed as of Claude Code v2.1.178.** The team forms implicitly on the first `Agent` spawn. | — |
+| ~~Disband the team~~ | ~~`TeamDelete`~~ | **Removed as of Claude Code v2.1.178.** The team is auto-cleaned at session exit. | — |
+| Add a teammate | `Agent` (spawns and, on first call, forms the team) | TeamLead (lead) | role-orientation prompt only — full brief goes in the task |
+| Retire a teammate | `SendMessage` shutdown request (per agent-teams docs) | TeamLead (lead) | one-sentence request to a specific teammate |
 | Send a nudge or out-of-band Q | `SendMessage` | any agent, by teammate name | **prose only — never state transitions** |
 | Create a task | `TaskCreate` | TeamLead (lead); teammates should not | the work brief |
 | Inspect task state | `TaskList`, `TaskGet` | any agent | the source of truth |
