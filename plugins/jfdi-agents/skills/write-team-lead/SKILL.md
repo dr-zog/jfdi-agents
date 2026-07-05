@@ -89,7 +89,7 @@ A lead prompt that tells teammates to address it must use `to: "team-lead"`, wit
 The lead picks names. Conventions used in this plugin:
 
 - **Role-only** for persistent specialists: `product-owner`, `architect`, `repo-steward`. One of each per session — they carry across every stage.
-- **Phase suffix** for per-unit work: `backend-dev-skeleton`, `frontend-dev-refine-3`, `verifier-skeleton-data`, `verifier-refine-1`.
+- **Phase suffix** for per-unit work: `backend-dev-skeleton`, `frontend-dev-refine-3`, `verifier-skeleton-complete`, `verifier-refine-1`.
 - **All-lowercase kebab-case** — the harness lowercases one side of its on-disk state but not the other; mixed-case team names break teammates' `TaskList` silently. See `${CLAUDE_PLUGIN_ROOT}/docs/team-lead-playbook.md` § 1.2.
 - **Unique within the team and across the session.** Name collisions break `SendMessage` and can cause context contamination.
 - **Only the lead spawns.** Teammates cannot add other teammates (documented harness constraint).

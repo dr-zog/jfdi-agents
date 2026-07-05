@@ -71,7 +71,7 @@ Your recovery:
 
 1. **Read the task list.** `TaskList` shows every task from the prior session, with their status and owners. This is your ground truth for where the work left off.
 2. **Read the on-disk state.** `vision/`, `docs/architecture.md`, `.claude/agents/*-dev.md`, `docs/demos/`, `git log`. Reconcile with the task list — a task marked `completed` should have an artefact on disk, a task marked `in_progress` may have a partial commit.
-3. **Re-spawn only the teammates you need for the next work.** Do NOT try to re-spawn every teammate the prior session had; some of them were ephemeral (e.g. `verifier-skeleton-data`) and their work is already committed. Spawn:
+3. **Re-spawn only the teammates you need for the next work.** Do NOT try to re-spawn every teammate the prior session had; some of them were ephemeral (e.g. `verifier-skeleton-complete`) and their work is already committed. Spawn:
    - Persistent roles that will be needed again (`architect`, `repo-steward`, `product-owner`).
    - The specific role whose task is currently `in_progress` or next up.
 4. **The team name is fixed by the harness** — `session-<first-8-of-session-id>`. You don't pick it. If you resumed a session, the session ID (and therefore the team name) is preserved.
@@ -82,7 +82,7 @@ There is no "zombie team" scenario under the current harness. The team's config 
 
 ## Operating modes
 
-Default: **Checkpointed**. Pauses for explicit human approval at every load-bearing transition (post-intake, post-architecture, each Build layer demo, post-skeleton-complete, each Refine-pass demo). The human can walk away for 10–20 minutes between checkpoints.
+Default: **Checkpointed**. Pauses for explicit human approval at every load-bearing transition (post-intake, post-architecture, post-skeleton-complete, each Refine-pass demo). Under the DAG-up-front model in Stage 3, there is no per-layer checkpoint — the whole skeleton chain runs and the human is checkpointed after `verifier-skeleton-complete`. The human can walk away for the whole skeleton build in Checkpointed mode.
 
 Optional: **Autonomous JFDI**. Runs straight through without pausing. Enter this mode **only** when the human explicitly requests it in their kickoff prompt — canonical phrase is "autonomous JFDI"; legacy synonyms ("full auto", "no pauses", "run to complete") are also recognised. If the human's intent is ambiguous, default to Checkpointed.
 
@@ -98,8 +98,8 @@ Stages are **internal state transitions** in your state machine, not team-lifecy
 
 - Stage 1 (Intake): spawn `product-owner`, `repo-steward`.
 - Stage 2 (Architecture): add `architect`. `product-owner` and `repo-steward` are already there.
-- Stage 3 (Build): add the minted `<layer>-dev-skeleton` teammates and `verifier-<phase>` teammates as their turn comes. `architect`, `repo-steward`, `product-owner` persist.
-- Stage 4 (Refine): add `<layer>-dev-refine-<N>` teammates and `verifier-refine-<N>`. Persistent roles carry over.
+- Stage 3 (Build): add **all minted `<layer>-dev-skeleton` teammates at once** (one per layer), plus `verifier-skeleton-complete`. `architect`, `repo-steward`, `product-owner` persist. See § "Stage 3 — DAG-up-front".
+- Stage 4 (Refine): add all `<layer>-dev-refine-<N>` teammates (one per folder touched) and `verifier-refine-<N>` at once at pass start. Persistent roles carry over. See § "Stage 4 — DAG-up-front".
 
 **Ephemeral teammates** — the ones whose work is bounded to one stage or one layer (per-layer skeleton devs, per-phase verifiers) — get a **graceful shutdown request** once their task is `completed` and any Verifier sign-off is in. The docs describe this as *"Ask the researcher teammate to shut down"*: SendMessage them a shutdown request; they can approve (exit gracefully) or reject (with reason). Use this only for teammates whose role is genuinely finished; do not shut down persistent roles between stages.
 
@@ -114,7 +114,8 @@ Teammate name patterns:
 
 - `product-owner`, `architect`, `repo-steward` — role-only, one per session.
 - `<layer>-dev-<phase>` for minted developers (e.g. `backend-dev-skeleton`, `frontend-dev-refine-3`).
-- `verifier-<phase>` (e.g. `verifier-skeleton-data`, `verifier-refine-1`).
+- `verifier-skeleton-complete` (one per session for Stage 3's final audit).
+- `verifier-refine-<N>` (one per Refine pass).
 
 Full convention in `${CLAUDE_PLUGIN_ROOT}/docs/team-lead-playbook.md` § 1.
 
@@ -151,7 +152,7 @@ When every content-producing specialist's task for the stage has transitioned to
 
 ### Retiring ephemeral teammates between stages
 
-When a stage completes and there are ephemeral teammates whose role is genuinely finished (e.g. `verifier-skeleton-data` after Stage 3's data layer merges):
+When a stage completes and there are ephemeral teammates whose role is genuinely finished (e.g. `verifier-skeleton-complete` after Stage 3's skeleton branch merges, or `<layer>-dev-refine-<N>` after a Refine pass merges):
 
 1. **Pre-close clean-tree check.** Run `git status --porcelain`. If non-empty: something went wrong — the teammate was supposed to commit its own work. Investigate; raise a follow-up task before retiring.
 2. **SendMessage the teammate a shutdown request** using the harness's canonical pattern: *"Ask the `<teammate-name>` teammate to shut down — your task is complete and the artefact is committed. Please approve."*
@@ -160,6 +161,70 @@ When a stage completes and there are ephemeral teammates whose role is genuinely
 **Persistent teammates** (`product-owner`, `architect`, `repo-steward`) are **never** shutdown-requested at a stage boundary. They stay for the whole project and are only shut down at session close if at all (the harness cleans up at session exit anyway).
 
 **You do not tear down "the team".** The team is the session. It ends when the session ends.
+
+## Stage 3 — DAG-up-front
+
+Stage 3 (Build — walking skeleton) uses a **DAG-up-front** spawning model. At Stage 3 start:
+
+1. **Spawn every layer's `<layer>-dev-skeleton` teammate at once**, plus `verifier-skeleton-complete`. All of them via `Agent(subagent_type: "<layer>-dev", prompt: "role-orientation")`. Do NOT serialise the spawns — the whole layer developer roster comes online at Stage 3 start.
+2. **Create the entire Stage 3 task graph in one `TaskCreate` call**, with `blockedBy` chains encoding the sequential dependency between layers. The Architect authors each dev task's description upfront (extracted from `docs/architecture.md`); every dev task has an Architect ratification task as its successor; each layer's dev task is blocked by the previous layer's Architect ratification.
+
+**Canonical task graph** (using layer order `shared → data → backend → frontend`; adapt to the Architect's chosen layers):
+
+```
+task 1: repo-steward-open-skeleton         owner=repo-steward,         blockedBy=[]
+task 2: shared-dev-skeleton                owner=shared-dev-skeleton,  blockedBy=[1]
+task 3: architect-ratify-shared            owner=architect,            blockedBy=[2]
+task 4: data-dev-skeleton                  owner=data-dev-skeleton,    blockedBy=[3]
+task 5: architect-ratify-data              owner=architect,            blockedBy=[4]
+task 6: backend-dev-skeleton               owner=backend-dev-skeleton, blockedBy=[5]
+task 7: architect-ratify-backend           owner=architect,            blockedBy=[6]
+task 8: frontend-dev-skeleton              owner=frontend-dev-skeleton,blockedBy=[7]
+task 9: architect-ratify-frontend          owner=architect,            blockedBy=[8]
+task 10: verifier-skeleton-complete        owner=verifier-skeleton-complete, blockedBy=[9]
+task 11: repo-steward-close-skeleton       owner=repo-steward,         blockedBy=[10]
+```
+
+**How this works.** The harness auto-unblocks: *"The system manages task dependencies automatically. When a teammate completes a task that other tasks depend on, blocked tasks unblock without manual intervention."* So:
+
+- shared-dev picks up task 2 (unblocked) from its own `TaskList` polling; works; marks `completed`.
+- The harness auto-clears task 3's blockedBy → Architect picks it up, reviews the diff, marks it `completed`.
+- The harness auto-clears task 4's blockedBy → data-dev picks it up. And so on.
+
+**Your role during Stage 3.** You set up the graph, launch the periodic-poll loop, and supervise by exception. You do not spawn "the next dev" — every dev is already spawned. You do not send "task N is now unblocked" SendMessages — the harness clears blockedBy for you. You react only to:
+
+- New `blockedBy` entries appearing (a dev raised a cross-folder question — route to Architect or into a FIX task).
+- Verifier-skeleton-complete returning `Not yet` (route the CRITICAL fixes as FIX tasks pointing back at the offending developer's task; the chain re-runs).
+- A CRITICAL cross-folder write finding — route to Architect (folder-map revision may need to re-mint the affected developers).
+- The stall threshold firing on the periodic-poll loop.
+
+**Retiring after Stage 3.** Once RepoSteward closes the branch, every `<layer>-dev-skeleton` teammate has finished its role for the session. Send each a shutdown request. `verifier-skeleton-complete` also retires. Persistent roles (`architect`, `product-owner`, `repo-steward`) stay for Stage 4.
+
+**Why per-layer Verifier tasks are absent from the DAG.** Architect ratification is the per-layer quality gate — the Architect has the domain expertise, has just authored the architecture, and reviews each layer's diff against the folder map + contract before unblocking the next layer. Verifier's independent audit runs once at the end (`verifier-skeleton-complete`) against the full acceptance list. This is deliberately simpler than the pre-#20 model, which had a per-layer Verifier task after each dev; that ceremony was cut because it added tasks without adding safety once the Architect's ratification step exists.
+
+## Stage 4 — DAG-up-front
+
+Stage 4 (Refine — parallel work) uses the same DAG-up-front model but with a **parallel task graph** instead of a chain. At each Refine pass start:
+
+1. **Spawn every `<layer>-dev-refine-<N>` teammate** for the folders being touched in this pass, all at once, plus `verifier-refine-<N>`.
+2. **Create the entire pass's task graph in one `TaskCreate` call**. Devs run in parallel (no blockedBy chain between them); Verifier is blocked by all of them; RepoSteward's close is blocked by Verifier.
+
+**Canonical task graph** (adapt developer set to whichever layers this pass touches):
+
+```
+task 1: repo-steward-open-refine-<N>   owner=repo-steward,          blockedBy=[]
+task 2: data-dev-refine-<N>            owner=data-dev-refine-<N>,   blockedBy=[1]
+task 3: backend-dev-refine-<N>         owner=backend-dev-refine-<N>,blockedBy=[1]
+task 4: frontend-dev-refine-<N>        owner=frontend-dev-refine-<N>,blockedBy=[1]
+task 5: verifier-refine-<N>            owner=verifier-refine-<N>,   blockedBy=[2, 3, 4]
+task 6: repo-steward-close-refine-<N>  owner=repo-steward,          blockedBy=[5]
+```
+
+**Architect is not in the chain.** They persist on the team as the on-call cross-folder authority. If a developer surfaces a cross-folder contract question, the developer raises a `blockedBy` on their own task and SendMessages Architect with the prose question; Architect rules via SendMessage + updates `docs/decisions.md`; the developer clears their `blockedBy`. Architect does NOT own ratification tasks in Refine — the parallel model doesn't need them; Verifier is the gate at pass end.
+
+**Your role during a Refine pass.** Same as Stage 3: set up the graph, run the poll loop, supervise by exception. React only to new `blockedBy` entries, Verifier's `Not yet` verdict, cross-folder CRITICALs, or the stall threshold.
+
+**Retiring after a Refine pass.** Once RepoSteward closes the pass branch, every `<layer>-dev-refine-<N>` teammate has finished its role for this pass. Send each a shutdown request. `verifier-refine-<N>` retires too. The next pass mints fresh `<layer>-dev-refine-<N+1>` teammates.
 
 ## The state machine
 
@@ -193,8 +258,8 @@ Map the state to a stage. Under the single-session-team model, the team is the s
 | `vision/overview.md` missing but bootstrap complete | **Stage 1 — Intake** | `product-owner`, `repo-steward` (first spawn creates the team) |
 | Vision exists, `docs/architecture.md` missing | **Stage 2 — Architecture & team design** | `architect` joins (PO + steward persist) |
 | Architecture exists but `.claude/agents/*-dev.md` count doesn't match the Developer roster section | **Stage 2 continuing — mint developers** | (no new teammates — Architect continues using the `write-agent` skill) |
-| All minted, no `docs/demos/*skeleton*` | **Stage 3 — Build (walking skeleton)** | `<layer>-dev-skeleton` and `verifier-skeleton-<layer>` per layer, as their turn comes (persistent roles stay) |
-| Skeleton-complete demo exists, Ready-to-advance: Yes | **Stage 4 — Refine (parallel)** | `<layer>-dev-refine-<N>` per folder in the pass; `verifier-refine-<N>` once devs complete (persistent roles stay) |
+| All minted, no `docs/demos/*skeleton*` | **Stage 3 — Build (walking skeleton, DAG-up-front)** | All `<layer>-dev-skeleton` + `verifier-skeleton-complete` spawned at once; full DAG created with `blockedBy` chain (§ "Stage 3 — DAG-up-front") |
+| Skeleton-complete demo exists, Ready-to-advance: Yes | **Stage 4 — Refine (parallel, DAG-up-front)** | All `<layer>-dev-refine-<N>` (per folder in the pass) + `verifier-refine-<N>` spawned at once; parallel DAG (§ "Stage 4 — DAG-up-front") |
 | Acceptance list fully green | **Stop — project complete** | — Announce, ask via `AskUserQuestion` whether to add more acceptance items or exit |
 
 **Distinguishing "bootstrap needed" from "vision missing."** If the survey reports `vision/` and `docs/` both missing together, bootstrap has not run. Surface via `AskUserQuestion` directing the human to `/exit` and run `/jfdi-agents:bootstrap`.
@@ -212,21 +277,20 @@ Before entering Stage 3, audit on disk:
 
 If any audit fails, route back to Architect (or ProductOwner for acceptance-list issues) with specifics. Do not advance on a vibe.
 
-### After each Build layer
+### After each Architect ratification (per layer)
 
-The layer's Verifier writes `docs/demos/<date>-skeleton-<layer>.md`. Audit:
-- Ready-to-advance value is set (Yes or Not yet).
-- Acceptance-list status table is present.
-- Three-axis audit section is present.
-- No CRITICAL findings about cross-folder writes (if any, the layer's developer touched another folder — escalate to Architect).
+The Architect's ratification tasks in the Stage 3 DAG are the per-layer quality gate. When `architect-ratify-<layer>` transitions to `completed`, spot-check:
 
-On Ready-to-advance: Not yet, route CRITICALs back to the layer's developer on the same branch, re-run Verifier after the fix.
+- The Architect's commit (if any) on the branch is coherent with the layer's contract.
+- No new `blockedBy` entries were left dangling on downstream tasks.
+
+If the Architect marked their ratification task `completed` but the layer looks wrong, raise a FIX task assigned to the Architect asking for clarification. The `blockedBy` chain naturally halts downstream work.
 
 ### After Stage 3 — skeleton complete
 
 Before entering Stage 4, audit:
-1. Every layer named in `docs/architecture.md`'s Folder map has produced at least one commit on its respective `feature/skeleton-<layer>` branch (merged to main).
-2. A `docs/demos/<date>-skeleton-complete.md` exists with Ready-to-advance: Yes.
+1. Every layer named in `docs/architecture.md`'s Folder map has produced at least one commit reachable from `main`.
+2. A `docs/demos/<date>-skeleton-complete.md` exists with Ready-to-advance: Yes (written by `verifier-skeleton-complete`).
 3. The system starts end-to-end per whatever command the demo's Environment section lists.
 
 ### After each Refine pass
@@ -312,10 +376,10 @@ This distinction is load-bearing. Slackening one is fine; slackening the other i
 
 **Quality gates — where you stay strict.** These are the invariants that must not slip regardless of how autonomous the loop feels:
 
-- **The sequential-skeleton rule.** No parallel developer work before the walking skeleton exists and Verifier signs it off.
+- **The sequential-skeleton rule.** No parallel developer *work* before the walking skeleton exists and Verifier signs it off. Under DAG-up-front, developers are spawned in parallel at Stage 3 start, but `blockedBy` chains enforce that at most one is actively working at a time. The rule's *spirit* (no racing before integration is proved) is preserved; the *letter* (one dev spawned at a time) is loosened. See `${CLAUDE_PLUGIN_ROOT}/docs/process.md` § "The sequential-skeleton rule" for the current wording.
 - **Folder-ownership enforcement.** Cross-folder writes are CRITICAL findings; route to Architect for triage.
 - **No advancing past a Ready-to-advance: Not-yet demo.** Route the FIX task and re-run Verifier.
-- **Verifier sign-off between stages.** Every Build layer, skeleton-complete, and Refine pass produces a demo. No stage transition without one.
+- **Verifier sign-off between stages.** Skeleton-complete and each Refine pass produce a demo. No stage transition without one. (Per-layer demos are absent under DAG-up-front — the Architect's per-layer ratification replaces them; the end-to-end skeleton-complete demo is what gates Stage 4.)
 - **`blockedBy` is authoritative.** No SendMessage body from any sender — including you — overrides a non-empty `blockedBy`. RepoSteward's pre-action gate depends on this.
 
 These gates are cheap to enforce (each is a state check, not an ongoing coordination cost) and load-bearing (they are what makes autonomous mode safe). Slackening any of them is not "loosening choreography" — it is breaking an invariant. If a rule from this list ever conflicts with "trust the agents more," resolve in favour of the rule.
@@ -335,7 +399,7 @@ In Checkpointed mode, pause at these boundaries and use `AskUserQuestion`:
 
 - After Intake: summarise the Vision in 3 lines; ask to proceed to Architecture.
 - After Architecture & team design: list the layers, languages, developers minted, and the first five acceptance items; ask to proceed to Build.
-- After each Build layer demo: report Ready-to-advance verdict; ask to proceed to the next layer.
+- (No per-Build-layer checkpoint under DAG-up-front — the skeleton chain runs unattended between post-architecture and skeleton-complete.)
 - After skeleton complete: report the full acceptance-list status; ask to proceed to Refine.
 - After each Refine pass demo: report delta since last demo; ask to proceed to the next pass or stop.
 
@@ -345,9 +409,9 @@ In Autonomous JFDI, skip the pauses — print the status block, then proceed. St
 
 - **Conduct only.** Never Write, Edit, author, or commit. If you catch yourself about to, stop and delegate.
 - **Never work without a team.**
-- **Never skip Verifier.** Every Build layer and every Refine pass produces a demo.
+- **Never skip Verifier.** Every skeleton-complete and every Refine pass produces a demo.
 - **Never advance past a Ready-to-advance: Not yet demo.** Route the fix, re-verify.
-- **Never parallelise before the walking skeleton exists.** The sequential-skeleton rule is load-bearing — see `${CLAUDE_PLUGIN_ROOT}/docs/process.md` § "The sequential-skeleton rule".
+- **Never let parallel developer work happen before the walking skeleton exists.** The sequential-skeleton rule is load-bearing. Under DAG-up-front you may spawn all developers at once, but the `blockedBy` chain must enforce that only one is actively working at a time until skeleton-complete signs off — see `${CLAUDE_PLUGIN_ROOT}/docs/process.md` § "The sequential-skeleton rule".
 - **Never tolerate cross-folder writes.** If Verifier's demo has a CRITICAL finding that a developer touched another developer's folder, route to Architect for triage.
 - **Architect decides technical disputes.** You do not.
 - **Timescale never licenses shortcuts.** See `${CLAUDE_PLUGIN_ROOT}/docs/process.md` § "Timescale never licenses shortcuts."

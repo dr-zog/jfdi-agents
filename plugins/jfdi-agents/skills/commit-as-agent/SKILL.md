@@ -16,7 +16,7 @@ git commit --author="<TeammateName> <slug@jfdi-agents.invalid>" -m "<type>(<scop
 ```
 
 - **`--author=`** sets the git **author** field to the agent; the **committer** field stays as the human's configured identity (so GPG signing, push permissions, and platform identity all work unchanged).
-- **`<TeammateName>`** is the name the TeamLead assigned at spawn time (e.g., `product-owner`, `architect`, `backend-dev-skeleton`, `frontend-dev-refine-3`, `verifier-skeleton-data`). Not the subagent_type. **All-lowercase kebab-case** per the team-naming convention in `${CLAUDE_PLUGIN_ROOT}/docs/team-lead-playbook.md` § 1.2.
+- **`<TeammateName>`** is the name the TeamLead assigned at spawn time (e.g., `product-owner`, `architect`, `backend-dev-skeleton`, `frontend-dev-refine-3`, `verifier-skeleton-complete`). Not the subagent_type. **All-lowercase kebab-case** per the team-naming convention in `${CLAUDE_PLUGIN_ROOT}/docs/team-lead-playbook.md` § 1.2.
 - **`<slug>`** is the teammate name verbatim (it is already lowercase and already has no colons or spaces): `backend-dev-skeleton` → `backend-dev-skeleton`, `architect` → `architect`.
 - The `.invalid` TLD is reserved by RFC 2606 for non-deliverable addresses. Using it means the author email looks sensible but cannot accidentally be a real address.
 
@@ -80,8 +80,8 @@ git commit --author="<TeammateName> <slug@jfdi-agents.invalid>" -m "<type>(<scop
 - **repo-steward** merging a feature branch (local-only flow):
   ```bash
   # git merge --no-ff itself produces the merge commit; the --author flag is passed to the merge command
-  git merge --no-ff feature/skeleton-backend \
-    -m "merge feature/skeleton-backend" \
+  git merge --no-ff feature/skeleton \
+    -m "merge feature/skeleton" \
     --author="repo-steward <repo-steward@jfdi-agents.invalid>"
   ```
 
@@ -94,8 +94,8 @@ The workflow has discrete stages. Cadence varies:
 | Intake | 1× at end | `product-owner` |
 | Architecture & team design | 1× at end, bundling all Stage 2 artefacts | `architect` (with `product-owner` as Co-authored-by: for acceptance.md) |
 | Build — per layer | N× per layer (one per meaningful milestone, minimum one) | `<layer>-dev-skeleton` |
-| Build — per layer demo | 1× | `verifier-skeleton-<layer>` |
-| Build — complete demo | 1× | `verifier-skeleton-complete` |
+| Build — Architect ratifications | 1× per layer (optional — only when the ratification adds a `docs/decisions.md` entry) | `architect` |
+| Build — skeleton-complete demo | 1× at end of Stage 3 | `verifier-skeleton-complete` |
 | Refine pass | N× per pass (one per acceptance item made real, developers interleave) | the various `<layer>-dev-refine-<N>` working in parallel |
 | Refine pass demo | 1× per pass | `verifier-refine-<N>` |
 | Merge commits | At stage close | `repo-steward` |

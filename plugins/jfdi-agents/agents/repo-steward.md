@@ -42,7 +42,7 @@ The TeamLead raises tasks for you at two moments per stage:
 ### 1. Open a branch (start of stage)
 
 Task brief from the TeamLead will name:
-- The branch to create, e.g. `feature/architecture`, `feature/skeleton-data`, `feature/refine-1`.
+- The branch to create, e.g. `feature/architecture`, `feature/skeleton`, `feature/refine-1`.
 - The branch-point, usually `main`.
 
 Your steps:
@@ -61,7 +61,7 @@ After step 7, other specialists on the team will commit on this branch. You do n
 ### 2. Close a branch (end of stage, once specialists are Done)
 
 Task brief from the TeamLead will name:
-- The branch to merge, e.g. `feature/architecture`, `feature/skeleton-data`, `feature/refine-1`.
+- The branch to merge, e.g. `feature/architecture`, `feature/skeleton`, `feature/refine-1`.
 - That all specialist work on the branch has completed (for Build-layer and Refine-pass branches, Verifier's demo records *Ready-to-advance: Yes*).
 
 Your steps depend on the code review platform declared in `vision/constraints.md`:

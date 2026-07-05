@@ -78,7 +78,8 @@ Stages have different cadences:
 | Intake | 1× at end | ProductOwner |
 | Architecture & team design | 1× at end, bundling vision/acceptance.md, docs/architecture.md, docs/decisions.md, and the minted .claude/agents/*.md files | Architect (some files may have PO co-author tags — see below) |
 | Build — per layer | N× per layer (one per meaningful milestone inside the layer, minimum one) | The spawned Developer for that layer |
-| Build — demo | 1× per Build milestone demo | Verifier |
+| Build — Architect ratifications | 1× per layer (optional — only when the Architect adds a `docs/decisions.md` note as part of ratification) | Architect |
+| Build — skeleton-complete demo | 1× at end of Stage 3 | `verifier-skeleton-complete` |
 | Refine pass | N× per pass (one per acceptance item made real, minimum one; developers can work in parallel so their commits interleave) | The spawned Developers for the pass |
 | Refine demo | 1× per pass demo | Verifier |
 
@@ -134,29 +135,29 @@ Architect reads the Vision, authors `docs/architecture.md` with the four require
 
 TeamLead's checkpoint before advancing: verify all minted developer agent files exist in `.claude/agents/` and parse. The `/agents` slash command or a direct `ls` is sufficient.
 
-### Stage 3 — Build (walking skeleton)
+### Stage 3 — Build (walking skeleton, DAG-up-front)
 
-For each layer, bottom-up:
+The walking skeleton is built as a **DAG-up-front**: at Stage 3 start, TeamLead spawns every layer developer at once, plus the skeleton-complete Verifier, and creates the entire task graph in one call with `blockedBy` chains enforcing layer-by-layer sequential *work*.
 
-1. **Architect picks the layer.** Typically data first, then the layer above it, then the top layer.
-2. **TeamLead opens a Build-layer branch.** `feature/skeleton-<layer>`.
-3. **TeamLead spawns the layer's Developer.** Teammate name: `<layer>-dev-skeleton`. Teammate task: *"Build the thinnest possible <layer> slice that supports the acceptance list. Stubs for everything not yet needed. Commit incrementally."*
-4. **Architect is on the team, available.** Developer messages Architect for any cross-folder decisions.
-5. **TeamLead's poll loop notices when the Developer's task transitions to `completed`.** It then creates a Verifier task and (if Verifier isn't yet on the team) spawns it. Verifier runs whatever acceptance items are demonstrable at this slice, writes `docs/demos/<date>-skeleton-<layer>.md`. On Ready-to-advance: Yes, TeamLead closes the branch (RepoSteward merges). On Not-yet, the fix goes back to the Developer on the same branch.
-6. **Advance to the next layer.** Repeat.
+1. **Architect picks the layer order.** Typically data first, then the layer above it, then the top layer. This order defines the `blockedBy` chain.
+2. **TeamLead opens ONE Build branch.** `feature/skeleton`. One branch for the whole skeleton, not per layer.
+3. **TeamLead spawns all layer developers and skeleton-complete Verifier at once.** Each spawned via `Agent(subagent_type: "<layer>-dev", ...)`.
+4. **TeamLead creates the whole DAG in one `TaskCreate` call.** The chain is: `repo-steward-open → <layer1>-dev-skeleton → architect-ratify-<layer1> → <layer2>-dev-skeleton → architect-ratify-<layer2> → ... → verifier-skeleton-complete → repo-steward-close`. Architect authors each dev task description upfront, extracted from `docs/architecture.md` (contracts each layer offers/consumes).
+5. **The harness auto-unblocks.** As each task transitions to `completed`, its dependents' `blockedBy` clears. Developers self-start via their own `TaskList` polling. TeamLead's periodic-poll loop watches for state changes and reacts by exception.
+6. **Architect's ratification tasks ARE the per-layer quality gate.** Architect reviews each layer's diff and either marks the ratification `completed` (unblocking the next layer) or raises a FIX task assigned to the failing developer (`blockedBy` on the FIX gates the downstream chain).
+7. **`verifier-skeleton-complete` runs the full acceptance list end-to-end.** Writes `docs/demos/<date>-skeleton-complete.md`. On Ready-to-advance: Yes, RepoSteward closes the branch. On Not-yet, TeamLead raises FIX tasks for the implicated developers; the chain re-runs.
+8. **Under DAG-up-front there are no per-layer Verifier tasks and no per-layer demos.** Architect ratification replaces per-layer Verifier as the quality gate; the end-to-end skeleton-complete demo replaces per-layer demos. Simpler task graph; same invariants.
 
-**When the top layer lands**, one more Verifier pass runs the **full acceptance list** end-to-end. The demo is `docs/demos/<date>-skeleton-complete.md`. That demo's Ready-to-advance: Yes is the gate to Stage 4.
-
-### Stage 4 — Refine (parallel work)
+### Stage 4 — Refine (parallel work, DAG-up-front)
 
 Loop until the acceptance list is fully green or the human says stop:
 
 1. **TeamLead reads the latest demo** and picks the next batch of acceptance items to address.
 2. **TeamLead groups items by folder-touched.** Items that touch only one folder can be implemented in parallel with items that touch different folders. Items that touch two folders coordinate via the Architect.
 3. **TeamLead opens a Refine branch.** `feature/refine-<N>` where N is a monotonic counter.
-4. **TeamLead spawns one Developer per folder being touched in this pass**, simultaneously. Teammate names: `<layer>-dev-refine-<N>`.
-5. **Developers work in parallel**, each in their own folder. They commit incrementally. If one needs something from another's folder, they ask Architect via TeamLead relay.
-6. **When all developer tasks transition to `completed`**, TeamLead's poll loop creates a Verifier task and spawns Verifier. Verifier runs the full acceptance list, writes `docs/demos/<date>-refine-<N>.md`. On Ready-to-advance: Yes, RepoSteward merges.
+4. **TeamLead spawns all pass developers and the pass Verifier at once**, plus creates the pass's task graph in one call. Developers run in parallel (each `blockedBy: [repo-open]` only — no chain between developers); Verifier is `blockedBy` all developers; repo-close is `blockedBy` Verifier.
+5. **Developers work in parallel**, each in their own folder. They commit incrementally. If one needs something from another's folder, they raise a `blockedBy` on their own task and SendMessage `architect`; Architect rules via `docs/decisions.md` and SendMessage; the developer clears their `blockedBy`.
+6. **`verifier-refine-<N>` runs the full acceptance list** when its `blockedBy` clears (all developer tasks complete). Writes `docs/demos/<date>-refine-<N>.md`. On Ready-to-advance: Yes, RepoSteward merges. On Not-yet, FIX tasks re-run the chain.
 7. Increment N and repeat.
 
 ## Handoff protocols
@@ -280,11 +281,18 @@ Attempting to produce a downstream output without the upstream prerequisite is a
 
 ## The sequential-skeleton rule (load-bearing)
 
-**Parallel work is forbidden before the walking skeleton exists.** This is the single most common failure mode of autonomous agent teams in this plugin's lineage — developers racing ahead on parallel layers before the integration surfaces have been settled, resulting in three "done" layers that don't actually compose.
+**Parallel developer *work* is forbidden before the walking skeleton exists.** This is the single most common failure mode of autonomous agent teams in this plugin's lineage — developers racing ahead on parallel layers before the integration surfaces have been settled, resulting in three "done" layers that don't actually compose.
 
-- **TeamLead** enforces this when scheduling. In Stage 3, at most one developer is spawned at a time. Violations are surfaced to the human.
-- **Architect** enforces this by refusing to sign off on a Build-phase demo until the full skeleton runs end-to-end.
-- **Verifier** enforces this by marking a Build-complete demo as Not-yet if the skeleton doesn't exercise every acceptance item at least trivially.
+**Spirit vs letter.** Under the DAG-up-front spawning model (see Stage 3 above), the plugin spawns every layer developer at Stage 3 start — that is, spawning is *parallel*, but *work* is not. The `blockedBy` chain in the task graph enforces one-layer-at-a-time work: shared-dev works while data-dev, backend-dev, and frontend-dev sit idle waiting for their `blockedBy` to clear. Only after each layer's Architect ratification completes does the next layer's developer start.
+
+- The **letter of the old rule** was "at most one developer is spawned at a time in Stage 3." Loosened under DAG-up-front.
+- The **spirit of the rule** — "no racing before integration is proved" — is preserved by the `blockedBy` chain plus Architect's per-layer ratification, and remains non-negotiable.
+
+Enforcement across roles:
+
+- **TeamLead** enforces the spirit by structuring the Stage 3 DAG as a chain (`<layer1>-dev → architect-ratify-<layer1> → <layer2>-dev → ...`), never as a parallel set. Creating unblocked parallel skeleton tasks is a rule violation.
+- **Architect** enforces the spirit by refusing to mark a ratification task `completed` until the layer's diff is coherent with the folder map + contracts. That is the per-layer quality gate under DAG-up-front.
+- **Verifier** enforces the spirit by marking the skeleton-complete demo as Not-yet if the end-to-end skeleton doesn't exercise every acceptance item at least trivially.
 
 ## The folder-ownership rule (load-bearing)
 

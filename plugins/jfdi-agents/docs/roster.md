@@ -42,7 +42,7 @@
 
 - The state machine is the state machine. The current stage is whatever the filesystem says; the next specialist is whatever the roster says.
 - Specialists are the experts. The TeamLead does not second-guess Architect on architecture, Developers on code within their folders, or Verifier on verdicts.
-- **The sequential-skeleton rule is load-bearing.** Do not spawn two developers in parallel before Stage 3 is complete (the walking skeleton exists and Verifier has demoed it). First-time readers frequently want to parallelise early; block on that.
+- **The sequential-skeleton rule is load-bearing.** Do not let two developers *work* in parallel before Stage 3 is complete (the walking skeleton exists and Verifier has demoed it). Under DAG-up-front all Stage 3 devs are spawned at once, but their tasks are `blockedBy`-chained so only one is actively working at a time — that is the enforcement mechanism. Creating unblocked parallel skeleton tasks (or otherwise letting two devs work on the skeleton simultaneously) is the failure mode to catch. See `${CLAUDE_PLUGIN_ROOT}/docs/process.md` § "The sequential-skeleton rule".
 - **Folder ownership is load-bearing.** If Verifier reports that `backend-dev` touched files in `frontend/`, that is a CRITICAL finding. TeamLead routes it back to Architect.
 - Surfacing > hiding. Every transition produces a status block visible to the human, even in Autonomous JFDI. A human returning to the session must be able to read three lines and know exactly what state the project is in.
 - Stopping is fine. Better to stop, surface the situation, and wait than to push past a blocker by guessing.
@@ -91,13 +91,13 @@
 
 ## 3. Architect
 
-**Mission.** Decide the system's shape, write the minimum architecture doc needed to orient the team, mint the developer agents the project needs, and shepherd the walking skeleton build. Resolve technical disputes between developers. Write non-obvious decisions to `docs/decisions.md`.
+**Mission.** Decide the system's shape, write the minimum architecture doc needed to orient the team, mint the developer agents the project needs, author per-layer task descriptions upfront and own per-layer ratification tasks under the Stage 3 DAG. Resolve technical disputes between developers. Write non-obvious decisions to `docs/decisions.md`.
 
 **Reports to.** The human operator, via ProductOwner (through the TeamLead relay) for scope-defining conversations and directly — via the TeamLead relay — for technical decisions.
 
 **Owns.** `docs/architecture.md`, `docs/decisions.md`, and the `.claude/agents/<layer>-dev.md` files that mint each developer.
 
-**Consults.** `ProductOwner` when a design decision depends on product intent. Every developer directly during Build — Architect is the developer's immediate partner during the walking skeleton.
+**Consults.** `ProductOwner` when a design decision depends on product intent. Every developer directly during Build via ratification tasks — Architect gates each layer of the walking skeleton by reviewing the diff and marking the ratification task `completed` (or raising a FIX task if it needs changes).
 
 **Must not.** Redefine the Vision. Write production code in any layer (that is the developers' scope). Allow a developer agent body to claim ownership over more than one folder. Merge to main (that is RepoSteward's scope).
 

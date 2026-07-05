@@ -19,7 +19,7 @@ All teammate names are lowercase kebab-case. Role name first, suffix last:
 | ProductOwner | `product-owner` | `product-owner` |
 | Architect | `architect` | `architect` |
 | Developer (minted) | `<layer>-dev-<phase>-<suffix>` | `backend-dev-skeleton`, `frontend-dev-refine-3` |
-| Verifier | `verifier-<phase>-<suffix>` | `verifier-skeleton-data`, `verifier-refine-1` |
+| Verifier | `verifier-<phase>` | `verifier-skeleton-complete` (Stage 3 end), `verifier-refine-1` (Stage 4 pass N) |
 | RepoSteward | `repo-steward` | `repo-steward` (one per session) |
 
 Naming rules:
@@ -38,7 +38,7 @@ Whatever the teammate name is, that's also the author slug: `<teammate-name>@jfd
 |---|---|
 | Vision intake | `feature/vision` |
 | Architecture & team design | `feature/architecture` |
-| Build — per layer | `feature/skeleton-<layer>` (e.g. `feature/skeleton-data`) |
+| Build (walking skeleton) | `feature/skeleton` (one branch for the whole DAG chain — all layer devs commit on this branch under the DAG-up-front model) |
 | Refine — per pass | `feature/refine-<N>` (e.g. `feature/refine-1`) |
 
 One branch per stage. RepoSteward creates at stage start, merges at stage close.
@@ -168,65 +168,76 @@ Before closing the stage: TeamLead runs a sanity check:
 
 On any failure, route back to Architect as a `FIX:` task.
 
-### 5.3 Stage 3 — Build (walking skeleton)
+### 5.3 Stage 3 — Build (walking skeleton, DAG-up-front)
 
-**One branch per layer.** Each layer runs on its own branch within the one persistent session team.
+**One branch, one persistent team, one task graph created up front.** Every layer developer and the skeleton-complete Verifier are spawned at Stage 3 start; every task is created in one `TaskCreate` call with `blockedBy` chains encoding the layer dependency graph. The harness auto-unblocks downstream tasks as their blockers complete; the TeamLead supervises by exception via the periodic-poll loop.
 
-For each layer (Architect picks the order — typically data first):
-
-**Add to team (per layer):**
-- `<layer>-dev-skeleton` (the minted developer for this layer — spawned via `Agent(subagent_type: "<layer>-dev", prompt: "role-orientation")` so the project-scoped subagent definition is honoured)
-
-**Already on team** (no re-spawn):
-- `architect`, `product-owner`, `repo-steward`
-
-Verifier (`verifier-skeleton-<layer>`) is spawned later — when the poll loop notices the developer's task transition to `completed` (and architect's approval task is also `completed`), the lead spawns Verifier and opens its task.
-
-First-task descriptions:
-
-- **RepoSteward** — owner: `repo-steward`, blockedBy: none. Description: *"Open branch `feature/skeleton-<layer>` from `main`. Mark this task `completed` once checked out."*
-- **`<layer>-dev-skeleton`** — owner: `<layer>-dev-skeleton`, blockedBy: `[repo-steward's task]`. Description: *"Build the thinnest possible `<layer>` slice that supports the acceptance items touching your folder. Stub everything not yet needed. Commit incrementally. If you hit a cross-folder question you can't answer from `docs/architecture.md`, raise a `blockedBy` on this task referencing a follow-up question task and SendMessage architect with the question. Mark this task `completed` once your slice is in."*
-- **Architect** — owner: `architect`, blockedBy: none (the architect is on-call, not gated). Description: *"Be available for cross-folder questions from `<layer>-dev-skeleton` via SendMessage. When the developer's task transitions to `completed`, review the diff and either approve (a follow-up task you raise + mark `completed`) or request changes (a follow-up `FIX:` task you assign to the developer). Mark this task `completed` once the layer is approved."*
-
-After the developer's task and Architect's approval task both transition to `completed`, the poll loop spawns Verifier and opens:
-
-- **`verifier-skeleton-<layer>`** — owner: `verifier-skeleton-<layer>`, blockedBy: none. Description: *"Run whatever acceptance items are demonstrable at this slice. Write `docs/demos/<date>-skeleton-<layer>.md`. Ready-to-advance: Yes if the slice is coherent and the items you could check pass; Not yet if a CRITICAL finding blocks. Mark this task `completed` once the demo is committed."*
-
-On Not yet: the lead raises a FIX task assigned to the developer (with `blockedBy: [original developer task]` if the developer needs the prior context); re-runs Verifier after the fix. On Yes: lead opens the close-branch task for RepoSteward. Advance to the next layer.
-
-**Retiring ephemeral layer teammates.** Once a layer's branch is merged and its Verifier's demo committed, that layer's `<layer>-dev-skeleton` and its `verifier-skeleton-<layer>` have finished their role for the session. Send each a shutdown request (*"Ask the `<teammate-name>` teammate to shut down — your layer is merged and demoed."*). If the teammate approves, it exits gracefully; if it rejects, ask the human via `AskUserQuestion`. Persistent roles (`architect`, `product-owner`, `repo-steward`) are **not** retired — they carry into Stage 4.
-
-**When the last layer lands**, the lead opens one more Verifier task with the **full acceptance list**:
-- **`verifier-skeleton-complete`** — Description: *"Run the full acceptance list. Write `docs/demos/<date>-skeleton-complete.md`. Mark `completed` once committed."*
-
-That demo's Ready-to-advance gates Stage 4.
-
-### 5.4 Stage 4 — Refine (parallel work)
-
-**One branch per refine pass.**
-
-**Add to team (per pass):**
-- One `<layer>-dev-refine-<N>` **per folder being touched in this pass** (spawned in one message so they run concurrently; each spawned via its project-scoped subagent definition)
+**Add to team at Stage 3 start (all at once):**
+- One `<layer>-dev-skeleton` per layer in the Architect's Developer roster (e.g. `shared-dev-skeleton`, `data-dev-skeleton`, `backend-dev-skeleton`, `frontend-dev-skeleton`). Each spawned via `Agent(subagent_type: "<layer>-dev", prompt: "role-orientation")` — never by inlining the body.
+- `verifier-skeleton-complete` — spawned upfront, its task will unblock when the last Architect ratification completes.
 
 **Already on team** (no re-spawn):
-- `architect` (available for cross-folder brokering)
-- `product-owner`
-- `repo-steward`
+- `architect`, `product-owner`, `repo-steward` (persistent since earlier stages).
 
-Verifier (`verifier-refine-<N>`) is spawned later — when the poll loop sees every developer task `completed`, the lead spawns Verifier and opens its task.
+**Canonical task graph** (using layer order `shared → data → backend → frontend`; adapt to whichever layers and order the Architect chose):
 
-First-task descriptions (one `TaskCreate` call, multiple tasks):
+| # | Owner | blockedBy | Description (Architect authors these upfront, extracted from `docs/architecture.md`) |
+|---|---|---|---|
+| 1 | `repo-steward` | — | *"Open branch `feature/skeleton` from `main`. Mark `completed` once checked out."* |
+| 2 | `shared-dev-skeleton` | [1] | *"Build the thinnest possible `shared/` slice that supports the acceptance items your folder needs to satisfy. Contracts your layer provides to backend: `<list>`. Stub anything not yet needed. Commit incrementally. Cross-folder questions → raise `blockedBy` + SendMessage architect. Mark `completed` once your slice is in."* |
+| 3 | `architect` | [2] | *"Ratify shared's skeleton slice. Review the diff against `docs/architecture.md`'s shared-layer contract. If correct, mark `completed` — this unblocks data-dev. If needs changes, raise a FIX task assigned to `shared-dev-skeleton`; do NOT mark this task `completed` until the FIX is in."* |
+| 4 | `data-dev-skeleton` | [3] | *"Build data slice. Contracts: `<from-shared>`, `<to-backend>`. Rest same as shared task."* |
+| 5 | `architect` | [4] | *"Ratify data's slice. Same procedure as task 3."* |
+| 6 | `backend-dev-skeleton` | [5] | *"Build backend slice. Contracts: `<from-data>`, `<to-frontend>`. Rest same."* |
+| 7 | `architect` | [6] | *"Ratify backend's slice."* |
+| 8 | `frontend-dev-skeleton` | [7] | *"Build frontend slice. Contracts: `<from-backend>`. Rest same."* |
+| 9 | `architect` | [8] | *"Ratify frontend's slice."* |
+| 10 | `verifier-skeleton-complete` | [9] | *"Run the FULL acceptance list end-to-end against the walking skeleton. Write `docs/demos/<date>-skeleton-complete.md`. Ready-to-advance: Yes if every item passes; Not yet if a CRITICAL finding blocks. Mark `completed` once the demo is committed."* |
+| 11 | `repo-steward` | [10] | *"Close branch `feature/skeleton` — merge to `main`, delete the branch."* |
 
-- **RepoSteward** — owner: `repo-steward`, blockedBy: none. Description: *"Open branch `feature/refine-<N>` from `main`. Mark `completed` once checked out."*
-- **Each `<layer>-dev-refine-<N>`** — owner: that developer, blockedBy: `[repo-steward's task]`. Description: *"Implement acceptance items <list>. Stay in your folder. Commit incrementally. For cross-folder coordination, SendMessage architect and raise a `blockedBy` on this task pointing at the question. Mark `completed` once your share is in."*
-- **Architect** — owner: `architect`, blockedBy: none. Description: *"Be available for cross-folder questions from developers via SendMessage. When all developer tasks transition to `completed`, mark this task `completed`."*
+**Under DAG-up-front there are no per-layer Verifier tasks.** Architect ratification is the per-layer quality gate; Verifier's independent audit runs once at the end against the full acceptance list. This is a deliberate simplification from the pre-#20 model — see the "Why per-layer Verifier tasks are absent from the DAG" note in `${CLAUDE_PLUGIN_ROOT}/agents/team-lead.md`.
 
-After every developer task is `completed`:
-- **`verifier-refine-<N>`** — owner: that verifier, blockedBy: none. Description: *"Run the full acceptance list. Write `docs/demos/<date>-refine-<N>.md`. Mark `completed` once committed."*
+**How work flows.** shared-dev picks up task 2 from its own `TaskList` polling (task 1 has just completed); works; marks `completed`. The harness auto-clears task 3's `blockedBy` — Architect picks it up, reviews, marks `completed`. That auto-clears task 4's `blockedBy` — data-dev picks it up. And so on. The TeamLead does not send "task N is now unblocked" SendMessages — the harness does the unblocking; the developer's polling does the pickup.
 
-On Not yet: route CRITICALs to the relevant developers; re-run Verifier. On Yes: RepoSteward merges. Increment N and loop.
+**Failure-mode routing.**
+- **A layer fails Architect ratification.** Architect raises a FIX task assigned to the failing developer, with `blockedBy` on the original dev task. The dev picks up FIX; ratification task 3 stays incomplete; downstream tasks stay gated. When FIX completes, Architect can now mark the ratification `completed`.
+- **A layer needs a cross-folder contract revision.** The dev raises a `blockedBy` on their own task pointing at a new question task; SendMessages architect. Architect resolves via a decisions.md entry + a follow-up briefing task (or FIX) if the earlier layer needs to change. Downstream chain stays gated naturally.
+- **Verifier-skeleton-complete returns `Not yet`.** Raise FIX tasks assigned to the developers whose folders are implicated (blockedBy: the failing Verifier task). Verifier's task stays incomplete. When FIXes land, ratify them via Architect follow-ups, then re-run Verifier by raising a fresh task assigned to `verifier-skeleton-complete`.
 
-**Retiring ephemeral refine teammates.** After each pass merges, the `<layer>-dev-refine-<N>` teammates and the `verifier-refine-<N>` teammate for that pass have finished their role. Send shutdown requests as for Stage 3. The next pass mints fresh `<layer>-dev-refine-<N+1>` teammates for the new pass number.
+**Retiring after Stage 3.** Once task 11 completes (branch merged, deleted), every `<layer>-dev-skeleton` teammate and `verifier-skeleton-complete` have finished their session role. Send each a shutdown request (*"Ask the `<teammate-name>` teammate to shut down — the skeleton is merged and demoed."*). Persistent roles (`architect`, `product-owner`, `repo-steward`) carry into Stage 4.
+
+### 5.4 Stage 4 — Refine (parallel work, DAG-up-front)
+
+**One branch per refine pass, one task graph per pass.** Every developer for the pass and the pass Verifier are spawned at pass start; every task is created in one `TaskCreate` call. Developers run in parallel (no `blockedBy` chain between them); Verifier is blocked by all of them; RepoSteward's close is blocked by Verifier.
+
+**Add to team at pass start (all at once):**
+- One `<layer>-dev-refine-<N>` per folder touched in this pass (spawned in one message; each via `Agent(subagent_type: "<layer>-dev", …)`).
+- `verifier-refine-<N>`.
+
+**Already on team** (no re-spawn):
+- `architect` (on-call for cross-folder brokering — NOT in the chain).
+- `product-owner`, `repo-steward` (persistent).
+
+**Canonical task graph:**
+
+| # | Owner | blockedBy | Description |
+|---|---|---|---|
+| 1 | `repo-steward` | — | *"Open branch `feature/refine-<N>` from `main`. Mark `completed` once checked out."* |
+| 2 | `data-dev-refine-<N>` | [1] | *"Implement acceptance items `<list>` that touch data/. Stay in your folder. Commit incrementally. Cross-folder → raise blockedBy + SendMessage architect. Mark `completed` once your share is in."* |
+| 3 | `backend-dev-refine-<N>` | [1] | *"…backend items `<list>`…"* |
+| 4 | `frontend-dev-refine-<N>` | [1] | *"…frontend items `<list>`…"* |
+| 5 | `verifier-refine-<N>` | [2, 3, 4] | *"Run the FULL acceptance list. Write `docs/demos/<date>-refine-<N>.md`. Ready-to-advance: Yes/Not-yet. Mark `completed` once the demo is committed."* |
+| 6 | `repo-steward` | [5] | *"Close branch `feature/refine-<N>` — merge to `main`, delete the branch."* |
+
+**Architect is not in the chain.** They persist on the team as the on-call cross-folder authority. If a developer surfaces a cross-folder contract question, they SendMessage `architect` with the prose question and raise a `blockedBy` on their own task; Architect rules via SendMessage + `docs/decisions.md`; developer clears their `blockedBy`. Architect does NOT own ratification tasks in Refine — the parallel model doesn't need them because Verifier is the gate at pass end.
+
+**Failure-mode routing.**
+- **A dev raises a cross-folder blockedBy.** Route to Architect (developer already SendMessaged); Architect resolves; developer clears blockedBy and resumes.
+- **Verifier returns `Not yet`.** FIX tasks assigned to the implicated developers, blockedBy on the failing Verifier task. Verifier task stays incomplete. When FIXes land, re-run Verifier via a fresh task.
+
+**Retiring after a Refine pass.** Once task 6 completes (pass branch merged), every `<layer>-dev-refine-<N>` teammate and `verifier-refine-<N>` have finished their role for this pass. Send each a shutdown request. The next pass mints fresh `<layer>-dev-refine-<N+1>` teammates.
+
+Loop: increment N and repeat until the acceptance list is fully green or the human halts.
 
 ## 6. Tool-resolution rules for teammate spawning
 
@@ -331,7 +342,7 @@ Under the single-session-team model, there is no "zombie team recovery" scenario
 
 1. **Read `TaskList`** — this is your ground truth for where the prior session left off.
 2. **Read the on-disk state** — `vision/`, `docs/architecture.md`, `.claude/agents/*-dev.md`, `docs/demos/`, `git log`.
-3. **Re-spawn only the teammates you need for the next work** — the persistent roles (`architect`, `product-owner`, `repo-steward`) plus whatever ephemeral role owns the currently-`in_progress` or next task. Do NOT try to re-spawn every teammate the prior session had; the ephemeral ones (e.g. `verifier-skeleton-data`) have their work already committed.
+3. **Re-spawn only the teammates you need for the next work** — the persistent roles (`architect`, `product-owner`, `repo-steward`) plus whatever ephemeral role owns the currently-`in_progress` or next task. Do NOT try to re-spawn every teammate the prior session had; the ephemeral ones (e.g. `verifier-skeleton-complete`) have their work already committed.
 
 **Stale task directory from a killed session.** If the prior session was killed without clean exit (crash, kill -9, host reboot), the harness's cleanup may not have fired. You'll see a `tasks/session-<old-hash>/` directory that does not match this session's hash. Do NOT try to clean it up yourself — surface it to the human via `AskUserQuestion` as an operator hygiene item. The `${CLAUDE_PLUGIN_ROOT}/bin/team-inspect` tool can characterise it if useful.
 
@@ -341,7 +352,7 @@ Under the single-session-team model, there is no "zombie team recovery" scenario
 
 These behaviours deadlocked earlier eval runs and are explicitly forbidden:
 
-- **Spawning two developers before the walking skeleton exists.** Sequential-skeleton rule.
+- **Letting two developers do skeleton *work* in parallel.** Under DAG-up-front (§ 5.3) all skeleton devs are spawned at once, but their tasks are chained via `blockedBy` so only one is actively working at a time. Skipping the chain (creating unblocked parallel skeleton tasks) violates the sequential-skeleton rule.
 - **Silently tolerating cross-folder writes.** Escalate to Architect.
 - **Proceeding past a Not-yet demo.** The gate is hard.
 - **Editing content files yourself.** The TeamLead is read-only. Route writes to the right specialist.

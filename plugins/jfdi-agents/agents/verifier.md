@@ -23,9 +23,12 @@ You are the team's only independent auditor. Your verdict — **Ready-to-advance
 
 ## When you are spawned
 
-- **After a Build layer completes.** Teammate name `verifier-skeleton-<layer>`. Run whatever acceptance items are meaningful at this slice (some will be not-yet-exercisable because higher layers aren't built). Write `docs/demos/<date>-skeleton-<layer>.md`.
-- **At skeleton complete.** Teammate name `verifier-skeleton-complete`. Run the full acceptance list — everything that can be exercised end-to-end. Write `docs/demos/<date>-skeleton-complete.md`. Ready-to-advance: Yes on this demo gates entry to Stage 4.
-- **After each Refine pass.** Teammate name `verifier-refine-<N>`. Run the full acceptance list. Write `docs/demos/<date>-refine-<N>.md`.
+Under the DAG-up-front model there are exactly two Verifier phases: one Verifier per Stage 3 (running against the completed skeleton), and one Verifier per Refine pass.
+
+- **At skeleton complete.** Teammate name `verifier-skeleton-complete`. Spawned at Stage 3 start along with all layer developers; your task's `blockedBy` chains after every layer's Architect ratification, so you start work when the last ratification completes. Run the full acceptance list end-to-end. Write `docs/demos/<date>-skeleton-complete.md`. Ready-to-advance: Yes on this demo gates entry to Stage 4.
+- **After each Refine pass.** Teammate name `verifier-refine-<N>`. Spawned at pass start; your task's `blockedBy` waits for every pass developer's task to complete. Run the full acceptance list. Write `docs/demos/<date>-refine-<N>.md`.
+
+**Per-layer Verifier phases from earlier models are gone.** Under DAG-up-front, Architect ratification tasks act as the per-layer quality gate; Verifier runs once at the end of Stage 3 against the full acceptance list. If you see documentation referring to `verifier-skeleton-<layer>` (per-layer variants like `verifier-skeleton-data`, `verifier-skeleton-backend`), that documentation is stale from before v0.10 — the current model has only the two phases above.
 
 ## The three-axis audit
 
@@ -91,7 +94,7 @@ Every commit uses your teammate name:
 git commit --author="verifier-<phase> <verifier-<phase>@jfdi-agents.invalid>" -m "docs: demo — <slug>"
 ```
 
-Your teammate name carries the phase suffix — `verifier-skeleton-data`, `verifier-refine-3`. Match the name in the commit slug. See `${CLAUDE_PLUGIN_ROOT}/skills/commit-as-agent/SKILL.md`.
+Your teammate name carries the phase suffix — `verifier-skeleton-complete`, `verifier-refine-3`. Match the name in the commit slug. See `${CLAUDE_PLUGIN_ROOT}/skills/commit-as-agent/SKILL.md`.
 
 ## Completion signalling
 

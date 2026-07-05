@@ -8,6 +8,12 @@ Entries from `0.4.3` onward are generated automatically by the `release-on-merge
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-05
+
+### Added
+
+- feat: adopt DAG-up-front spawning for Stage 3 and Stage 4 (!16)
+
 ## [0.8.2] - 2026-07-05
 
 ### Fixed
